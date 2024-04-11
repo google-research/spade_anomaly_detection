@@ -1,6 +1,9 @@
 # Example Data
 
 ## Dataset Licenses
+
+Datasets in `example_data/*` are made available under the [CC BY 4.0 License](https://creativecommons.org/licenses/by/4.0/legalcode.txt).
+
 - Covertype Dataset:
   - [Link](https://archive.ics.uci.edu/ml/datasets/covertype)
   - License: Creative Commons Attribution 4.0 International (CC BY 4.0) license.

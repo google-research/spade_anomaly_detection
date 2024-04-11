@@ -202,4 +202,8 @@ gcloud ai custom-jobs create \
  --args=--verbose="${VERBOSE}"
 ~~~
 
+## Example Datasets and their Licenses
+
+Datasets in `example_data/*` are made available under the [CC BY 4.0 License](https://creativecommons.org/licenses/by/4.0/legalcode.txt). See the README file in that
+folder for details.
 
