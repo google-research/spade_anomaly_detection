@@ -110,7 +110,7 @@ The [gcloud custom jobs documentation](https://cloud.google.com/sdk/gcloud/refer
 
 Notebooks where you can plug in your parameters and run the custom training job. The notebooks just require a Google account and Cloud Project.
 
-<span style="color:red">**(TODO(sinharaj): Add OSS version of Notebook)**</span>
+<span style="color:red">**(TODO(b/333154677): Add OSS version of Notebook)**</span>
 
 
 ## Example Shell Scripts
@@ -206,4 +206,3 @@ gcloud ai custom-jobs create \
 
 Datasets in `example_data/*` are made available under the [CC BY 4.0 License](https://creativecommons.org/licenses/by/4.0/legalcode.txt). See the README file in that
 folder for details.
-
