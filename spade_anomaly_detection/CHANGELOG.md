@@ -23,9 +23,14 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 ## [Unreleased]
 
-## [0.1.0] - 2022-01-01
+## [0.2.0] - 2022-05-05
+
+* Add PyPi support. Minor reorganization of repository.
+
+## [0.1.0] - 2024-04-17
 
 * Initial release
 
-[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/google-research/spade_anomaly_detection/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/google-research/spade_anomaly_detection/releases/tag/v0.1.0
