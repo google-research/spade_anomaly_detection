@@ -9,6 +9,17 @@
 name: Upload Python Package
 
 on:
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: true
+        default: 'info'
+        type: choice
+        options:
+        - info
+        - warning
+        - debug
   release:
     types: [published]
 
@@ -16,10 +27,16 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
 
+  log-the-inputs:
     runs-on: ubuntu-latest
-
+    steps:
+      - run: |
+          echo "Log level: $LEVEL"
+        env:
+          LEVEL: ${{ inputs.logLevel }}
+  deploy:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python
