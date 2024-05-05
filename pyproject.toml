@@ -35,7 +35,7 @@ dependencies = [
 ]
 
 # `version` is automatically set by flit to use `spade_anomaly_detection.__version__`
-dynamic = ["version"]
+# dynamic = ["version"]
 
 [project.urls]
 homepage = "https://github.com/google-research/spade_anomaly_detection"
