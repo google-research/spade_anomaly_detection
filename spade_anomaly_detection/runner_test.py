@@ -653,14 +653,20 @@ class RunnerTest(tf.test.TestCase):
       self.mock_get_query_record_result_length.assert_any_call(
           mock.ANY,
           input_path=self.runner_parameters.test_bigquery_table_path,
-          where_statements=self.runner_parameters.where_statements,
+          where_statements=[
+              f'{self.runner_parameters.test_label_col_name} !='
+              f' {self.runner_parameters.unlabeled_data_value}'
+          ],
       )
     with self.subTest('TestTableDataLoader'):
       self.mock_load_tf_dataset_from_bigquery.assert_any_call(
           mock.ANY,
           input_path=self.runner_parameters.test_bigquery_table_path,
           label_col_name=self.runner_parameters.test_label_col_name,
-          where_statements=self.runner_parameters.where_statements,
+          where_statements=[
+              f'{self.runner_parameters.test_label_col_name} !='
+              f' {self.runner_parameters.unlabeled_data_value}'
+          ],
           ignore_columns=self.runner_parameters.ignore_columns,
           batch_size=self.total_test_records,
       )
