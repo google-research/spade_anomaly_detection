@@ -437,14 +437,25 @@ class Runner:
     # TODO(b/247116870): Implement a dedicated function in the runner class
     # to load BQ test sets before evaluating the supervised model.
     if self.runner_parameters.test_bigquery_table_path:
+      # Remove any unlabeled samples that may be in the test set.
+      unlabeled_sample_filter = (
+          f'{self.runner_parameters.test_label_col_name} != '
+          f'{self.runner_parameters.unlabeled_data_value}'
+      )
+      if self.runner_parameters.where_statements is not None:
+        unlabeled_sample_where_statements = (
+            self.runner_parameters.where_statements + [unlabeled_sample_filter]
+        )
+      else:
+        unlabeled_sample_where_statements = [unlabeled_sample_filter]
       test_dataset_size = self.data_loader.get_query_record_result_length(
           input_path=self.runner_parameters.test_bigquery_table_path,
-          where_statements=self.runner_parameters.where_statements,
+          where_statements=unlabeled_sample_where_statements,
       )
       test_tf_dataset = self.data_loader.load_tf_dataset_from_bigquery(
           input_path=self.runner_parameters.test_bigquery_table_path,
           label_col_name=self.runner_parameters.test_label_col_name,
-          where_statements=self.runner_parameters.where_statements,
+          where_statements=unlabeled_sample_where_statements,
           ignore_columns=self.runner_parameters.ignore_columns,
           batch_size=test_dataset_size,
       )
