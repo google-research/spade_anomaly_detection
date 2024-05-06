@@ -54,8 +54,7 @@ from spade_anomaly_detection.data_utils import feature_metadata
 
 import tensorflow as tf
 
-
-_DATA_ROOT = 'third_party/py/spade_anomaly_detection/example_data/'
+_DATA_ROOT = 'spade_anomaly_detection/example_data/'
 
 
 def load_dataframe(
