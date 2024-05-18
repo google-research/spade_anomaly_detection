@@ -2,7 +2,6 @@
 # Project metadata. Available keys are documented at:
 # https://packaging.python.org/en/latest/specifications/declaring-project-metadata
 name = "spade_anomaly_detection"
-version = "0.2.0"
 description = "Semi-supervised Pseudo Labeler Anomaly Detection with Ensembling (SPADE) is a semi-supervised anomaly detection method that uses an ensemble of one class classifiers as the pseudo-labelers and supervised classifiers to achieve state of the art results especially on datasets with distribution mismatch between labeled and unlabeled samples."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -35,7 +34,7 @@ dependencies = [
 ]
 
 # `version` is automatically set by flit to use `spade_anomaly_detection.__version__`
-# dynamic = ["version"]
+dynamic = ["version"]
 
 [project.urls]
 homepage = "https://github.com/google-research/spade_anomaly_detection"

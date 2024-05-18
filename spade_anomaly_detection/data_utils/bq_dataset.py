@@ -721,6 +721,7 @@ def get_dataset_and_metadata_for_table(
     batch_size: int = 64,
     with_mask: bool = _WITH_MASK_DEFAULT,
     drop_remainder: bool = False,
+    page_size: Optional[int] = None,
 ) -> Tuple[tf.data.Dataset, feature_metadata.BigQueryTableMetadata]:
   """Gets the metadata and dataset for a BigQuery table.
 
@@ -735,6 +736,8 @@ def get_dataset_and_metadata_for_table(
     with_mask: Whether the dataset should be returned with a mask format. For
       more information see get_bigquery_dataset.
     drop_remainder: If true no partial batches will be yielded.
+    page_size: the pagination size to use when retrieving data from BigQuery. A
+      large value can result in fewer BQ calls, hence time savings.
 
   Returns:
     A tuple of the output dataset and metadata for the specified table.
@@ -783,6 +786,7 @@ def get_dataset_and_metadata_for_table(
       cache_location=None,
       where_clauses=metadata_options.where_clauses,
       drop_remainder=drop_remainder,
+      page_size=page_size,
   )
 
   return dataset, all_metadata
