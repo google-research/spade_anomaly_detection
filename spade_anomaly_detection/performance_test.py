@@ -78,6 +78,11 @@ class PerformanceTest(tf.test.TestCase):
         filter_label_value=self.runner_parameters.unlabeled_data_value,
     )
     self.unlabeled_record_count = len(self.unlabeled_labels)
+    _, negative_labels = data_loader.load_dataframe(
+        dataset_name=csv_path,
+        filter_label_value=self.runner_parameters.negative_data_value,
+    )
+    self.negative_record_count = len(negative_labels)
 
     self.occ_fit_batch_size = (
         self.unlabeled_record_count // self.runner_parameters.ensemble_count
@@ -128,6 +133,7 @@ class PerformanceTest(tf.test.TestCase):
     self.mock_get_total_records.side_effect = [
         self.total_record_count,
         self.unlabeled_record_count,
+        self.negative_record_count,
     ]
 
     runner_object = runner.Runner(self.runner_parameters)
@@ -151,6 +157,7 @@ class PerformanceTest(tf.test.TestCase):
     self.mock_get_total_records.side_effect = [
         self.total_record_count,
         self.unlabeled_record_count,
+        self.negative_record_count,
     ]
 
     runner_object = runner.Runner(self.runner_parameters)

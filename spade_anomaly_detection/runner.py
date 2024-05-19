@@ -104,6 +104,31 @@ class Runner:
           else self.runner_parameters.negative_threshold
       )
 
+  def _get_record_count_based_on_labels(self, label_value: int) -> int:
+    """Gets the number of records in the table.
+
+    Args:
+      label_value: The value of the label to use as the filter for records.
+
+    Returns:
+      The count of records.
+    """
+    label_record_count_filter = (
+        f'{self.runner_parameters.label_col_name} = {label_value}'
+    )
+    if self.runner_parameters.where_statements:
+      label_record_count_where_statements = [
+          self.runner_parameters.where_statements
+      ] + [label_record_count_filter]
+    else:
+      label_record_count_where_statements = [label_record_count_filter]
+
+    label_record_count = self.data_loader.get_query_record_result_length(
+        input_path=self.runner_parameters.input_bigquery_table_path,
+        where_statements=label_record_count_where_statements,
+    )
+    return label_record_count
+
   def check_data_tables(
       self,
       total_record_count: int,
@@ -166,12 +191,13 @@ class Runner:
         )
 
   def instantiate_and_fit_ensemble(
-      self, unlabeled_record_count: int
+      self, unlabeled_record_count: int, negative_record_count: int
   ) -> occ_ensemble.GmmEnsemble:
     """Creates and fits an OCC ensemble on the specified input data.
 
     Args:
       unlabeled_record_count: Number of unlabeled records in the table.
+      negative_record_count: Number of negative records in the table.
 
     Returns:
       A trained one class classifier ensemble.
@@ -183,7 +209,8 @@ class Runner:
         negative_threshold=self.runner_parameters.negative_threshold,
     )
 
-    records_per_occ = unlabeled_record_count // ensemble_object.ensemble_count
+    training_record_count = unlabeled_record_count + negative_record_count
+    records_per_occ = training_record_count // ensemble_object.ensemble_count
     batch_size = records_per_occ // self.runner_parameters.batches_per_model
     batch_size = np.min([batch_size, self.runner_parameters.max_occ_batch_size])
 
@@ -195,7 +222,11 @@ class Runner:
         where_statements=self.runner_parameters.where_statements,
         ignore_columns=self.runner_parameters.ignore_columns,
         batch_size=batch_size,
-        label_column_filter_value=self.runner_parameters.unlabeled_data_value,
+        # Train using negative labeled data and unlabeled data.
+        label_column_filter_value=[
+            self.runner_parameters.unlabeled_data_value,
+            self.runner_parameters.negative_data_value,
+        ],
     )
 
     logging.info('Fitting ensemble.')
@@ -527,20 +558,11 @@ class Runner:
         where_statements=self.runner_parameters.where_statements,
     )
 
-    unlabeled_record_count_filter = (
-        f'{self.runner_parameters.label_col_name} = '
-        f'{self.runner_parameters.unlabeled_data_value}'
+    unlabeled_record_count = self._get_record_count_based_on_labels(
+        self.runner_parameters.unlabeled_data_value
     )
-    if self.runner_parameters.where_statements:
-      unlabeled_record_count_where_statements = [
-          self.runner_parameters.where_statements
-      ] + [unlabeled_record_count_filter]
-    else:
-      unlabeled_record_count_where_statements = [unlabeled_record_count_filter]
-
-    unlabeled_record_count = self.data_loader.get_query_record_result_length(
-        input_path=self.runner_parameters.input_bigquery_table_path,
-        where_statements=unlabeled_record_count_where_statements,
+    negative_record_count = self._get_record_count_based_on_labels(
+        self.runner_parameters.negative_data_value
     )
 
     self.check_data_tables(
@@ -549,7 +571,8 @@ class Runner:
     )
 
     ensemble_object = self.instantiate_and_fit_ensemble(
-        unlabeled_record_count=unlabeled_record_count
+        unlabeled_record_count=unlabeled_record_count,
+        negative_record_count=negative_record_count,
     )
 
     batch_size = (
@@ -615,10 +638,11 @@ class Runner:
         )
 
     if not self.runner_parameters.upload_only:
+      if self.supervised_model_object is None:
+        raise ValueError('Supervised model was not created and trained.')
       self.evaluate_model()
-      if self.supervised_model_object is not None:
-        self.supervised_model_object.save(
-            save_location=self.runner_parameters.output_gcs_uri
-        )
+      self.supervised_model_object.save(
+          save_location=self.runner_parameters.output_gcs_uri
+      )
 
     logging.info('SPADE training completed.')
