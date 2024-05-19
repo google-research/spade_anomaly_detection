@@ -341,7 +341,9 @@ class DataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         label_column_filter_value=label_column_filter_value,
     )
 
-    mock_metadata_call_actual = metadata_mock.call_args.kwargs['where_clauses']
+    mock_metadata_call_actual = metadata_mock.get_none.call_args.kwargs[
+        'where_clauses'
+    ]
 
     # Ensure that a where statement was not created when we don't pass in label
     # values.
@@ -399,7 +401,7 @@ class DataLoaderTest(tf.test.TestCase, parameterized.TestCase):
 
     self.assertListEqual(
         expected_where_statements,
-        mock_metadata.call_args.kwargs['where_clauses'],
+        mock_metadata.get_none.call_args.kwargs['where_clauses'],
     )
 
   @mock.patch.object(
@@ -419,7 +421,7 @@ class DataLoaderTest(tf.test.TestCase, parameterized.TestCase):
 
     self.assertListEqual(
         where_statements,
-        mock_metadata.call_args.kwargs['where_clauses'],
+        mock_metadata.get_none.call_args.kwargs['where_clauses'],
     )
 
   @mock.patch.object(feature_metadata, 'BigQueryMetadataBuilder', autospec=True)

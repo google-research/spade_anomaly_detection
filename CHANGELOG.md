@@ -23,7 +23,11 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 ## [Unreleased]
 
-## [0.2.0] - 2022-05-05
+## [0.2.1] - 2024-05-18
+
+* Updates to data loaders. Label column filter can now be a list of integers.
+
+## [0.2.0] - 2024-05-05
 
 * Add PyPi support. Minor reorganization of repository.
 
@@ -31,6 +35,7 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 * Initial release
 
-[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/google-research/spade_anomaly_detection/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/google-research/spade_anomaly_detection/releases/tag/v0.1.0

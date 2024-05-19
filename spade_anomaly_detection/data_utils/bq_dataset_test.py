@@ -683,6 +683,7 @@ class GetBigQueryDatasetTest(FeatureSeriesEqualTest):
     self.assertIsInstance(output_dataset, tf.data.Dataset)
 
     # Loop through the batches and make sure they all match.
+    epoch = None
     for epoch in range(1, 3):
       batch_index = 0
       for cur_batch in output_dataset:
@@ -760,7 +761,7 @@ class GetDatasetAndMetadataForTableTest(tf.test.TestCase):
     mock_bq_storage_client = mock.create_autospec(
         bigquery_storage.BigQueryReadClient, spec_set=True, instance=True)
     metadata_options = feature_metadata.MetadataRetrievalOptions.get_all()
-    batch_sie = 128
+    batch_size = 128
     with_mask = False
 
     output_dataset, output_metadata = (
@@ -769,7 +770,7 @@ class GetDatasetAndMetadataForTableTest(tf.test.TestCase):
             bigquery_client=mock_bq_client,
             bigquery_storage_client=mock_bq_storage_client,
             metadata_options=metadata_options,
-            batch_size=batch_sie,
+            batch_size=batch_size,
             with_mask=with_mask,
         )
     )
@@ -780,11 +781,12 @@ class GetDatasetAndMetadataForTableTest(tf.test.TestCase):
         get_metadata_mock.return_value,
         mock_bq_client,
         bqstorage_client=mock_bq_storage_client,
-        batch_size=batch_sie,
+        batch_size=batch_size,
         with_mask=with_mask,
         cache_location=None,
         where_clauses=(),
         drop_remainder=False,
+        page_size=None,
     )
 
     self.assertEqual(output_dataset, get_bigquery_dataset_mock.return_value)
@@ -832,6 +834,7 @@ class GetDatasetAndMetadataForTableTest(tf.test.TestCase):
         cache_location=None,
         where_clauses=(),
         drop_remainder=False,
+        page_size=None,
     )
 
     self.assertEqual(output_dataset, get_bigquery_dataset_mock.return_value)

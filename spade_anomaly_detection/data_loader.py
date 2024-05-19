@@ -328,8 +328,9 @@ class DataLoader:
       where_statements: Optional[List[str]] = None,
       ignore_columns: Optional[Sequence[str]] = None,
       batch_size: Optional[int] = None,
-      label_column_filter_value: Optional[int] = None,
+      label_column_filter_value: Optional[int | list[int]] = None,
       convert_features_to_float64: bool = False,
+      page_size: Optional[int] = None,
   ) -> tf.data.Dataset:
     """Loads a TensorFlow dataset from a BigQuery Table.
 
@@ -346,10 +347,13 @@ class DataLoader:
         dataset is not batched. In this case, when iterating through the
         dataset, it will yield one record per call instead of a batch of
         records.
-      label_column_filter_value: An integer used when filtering the label column
-        values. No value will result in all data returned from the table.
+      label_column_filter_value: An integer or list of integers used when
+        filtering the label column values. No value will result in all data
+        returned from the table.
       convert_features_to_float64: Set to True to cast the contents of the
         features columns to float64.
+      page_size: the pagination size to use when retrieving data from BigQuery.
+        A large value can result in fewer BQ calls, hence time savings.
 
     Returns:
       A TensorFlow dataset.
@@ -362,7 +366,15 @@ class DataLoader:
       where_statements = (
           list() if where_statements is None else where_statements
       )
-      where_statements.append(f'{label_col_name} = {label_column_filter_value}')
+      if isinstance(label_column_filter_value, int):
+        where_statements.append(
+            f'{label_col_name} = {label_column_filter_value}'
+        )
+      else:
+        where_statements.append(
+            f'CAST({label_col_name} AS INT64) IN '
+            f'UNNEST({label_column_filter_value})'
+        )
 
     if ignore_columns is not None:
       metadata_builder = feature_metadata.BigQueryMetadataBuilder(
@@ -373,8 +385,10 @@ class DataLoader:
       )
 
     if where_statements:
-      metadata_retrieval_options = feature_metadata.MetadataRetrievalOptions(
-          where_clauses=where_statements
+      metadata_retrieval_options = (
+          feature_metadata.MetadataRetrievalOptions.get_none(
+              where_clauses=where_statements
+          )
       )
 
     tf_dataset, metadata = bq_dataset.get_dataset_and_metadata_for_table(
@@ -384,7 +398,12 @@ class DataLoader:
         drop_remainder=True,
         metadata_options=metadata_retrieval_options,
         metadata_builder=metadata_builder,
+        page_size=page_size,
     )
+    options = tf.data.Options()
+    # Avoid a large warning output by TF Dataset.
+    options.deterministic = False
+    tf_dataset = tf_dataset.with_options(options)
 
     self.input_feature_metadata = metadata
 
