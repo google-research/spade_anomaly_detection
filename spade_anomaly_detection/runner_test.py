@@ -129,6 +129,7 @@ class RunnerTest(tf.test.TestCase):
         self.per_class_labeled_example_count * 2
     ) + self.unlabeled_examples
     self.total_test_records = self.per_class_labeled_example_count * 2
+    self.negative_examples = self.per_class_labeled_example_count * 1
 
     unlabeled_features = np.random.rand(
         self.unlabeled_examples, num_features
@@ -203,6 +204,7 @@ class RunnerTest(tf.test.TestCase):
       self.mock_get_query_record_result_length.side_effect = [
           self.all_examples,
           self.unlabeled_examples,
+          self.negative_examples,
           self.total_test_records,
       ]
     else:
@@ -213,6 +215,7 @@ class RunnerTest(tf.test.TestCase):
       self.mock_get_query_record_result_length.side_effect = [
           self.all_examples,
           self.unlabeled_examples,
+          self.negative_examples,
       ]
 
   def test_runner_data_loader_no_error(self):
@@ -228,8 +231,14 @@ class RunnerTest(tf.test.TestCase):
           label_col_name=self.runner_parameters.label_col_name,
           where_statements=self.runner_parameters.where_statements,
           ignore_columns=self.runner_parameters.ignore_columns,
-          label_column_filter_value=self.runner_parameters.unlabeled_data_value,
-          batch_size=self.unlabeled_examples
+          # Verify that both negative and unlabeled samples are used.
+          label_column_filter_value=[
+              self.runner_parameters.unlabeled_data_value,
+              self.runner_parameters.negative_data_value,
+          ],
+          # Verify that batch size is computed with both negative and unlabeled
+          # sample counts.
+          batch_size=(self.unlabeled_examples + self.negative_examples)
           // self.runner_parameters.ensemble_count,
       )
     # Assert that the data loader is also called to fetch all records.
@@ -311,7 +320,7 @@ class RunnerTest(tf.test.TestCase):
 
   def test_runner_record_count_raise_error(self):
     self.runner_parameters.ensemble_count = 10
-    self.mock_get_query_record_result_length.side_effect = [5, 0]
+    self.mock_get_query_record_result_length.side_effect = [5, 0, 1]
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertRaisesRegex(
@@ -320,7 +329,7 @@ class RunnerTest(tf.test.TestCase):
       runner_object.run()
 
   def test_runner_no_records_raise_error(self):
-    self.mock_get_query_record_result_length.side_effect = [0, 0]
+    self.mock_get_query_record_result_length.side_effect = [0, 0, 0]
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertRaisesRegex(
@@ -340,7 +349,7 @@ class RunnerTest(tf.test.TestCase):
 
   def test_record_count_warning_raise(self):
     # Will raise a warning when there are < 1k samples in the entire dataset.
-    self.mock_get_query_record_result_length.side_effect = [500, 100]
+    self.mock_get_query_record_result_length.side_effect = [500, 100, 10]
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertLogs() as training_logs:
@@ -452,7 +461,7 @@ class RunnerTest(tf.test.TestCase):
 
   def test_batch_size_too_large_throw_error(self):
     self.runner_parameters.labeling_and_model_training_batch_size = 1000
-    self.mock_get_query_record_result_length.side_effect = [100, 5]
+    self.mock_get_query_record_result_length.side_effect = [100, 5, 10]
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertRaisesRegex(
@@ -695,6 +704,7 @@ class RunnerTest(tf.test.TestCase):
     self.mock_get_query_record_result_length.side_effect = [
         self.all_examples,
         self.unlabeled_examples,
+        self.negative_examples,
         total_test_records,
     ]
 
