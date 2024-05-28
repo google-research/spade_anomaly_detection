@@ -15,7 +15,7 @@
 
 [Semi-supervised Pseudo Labeler Anomaly Detection with Ensembling (SPADE)](https://openreview.net/forum?id=JwDpZSv3yz)  is a semi-supervised anomaly detection method that uses an ensemble of one class classifiers as the pseudo-labelers and supervised classifiers to achieve state of the art results especially on datasets with distribution mismatch between labeled and unlabeled samples. Provided with a min-max scaled dataset, and label values denoting unlabeled, positive, and negative data points located in BigQuery, this custom model trains and uploads TensorFlow saved model assets to a specified GCS location.
 
-==Partial matching as described in the paper is not implemented in the open-source version of SPADE==
+*Partial matching as described in the paper is not implemented in the open-source version of SPADE*
 
 ## Assumptions
 
