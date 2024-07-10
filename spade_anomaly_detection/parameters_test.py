@@ -38,22 +38,37 @@ import tensorflow as tf
 class ParametersTest(tf.test.TestCase):
 
   def test_none_required_parameter_raises(self):
-    with self.assertRaises(ValueError):
-      _ = parameters.RunnerParameters(
-          train_setting=parameters.TrainSetting.PNU,
-          input_bigquery_table_path=None,
-          output_gcs_uri='gs://some_bucket/some_path',
-          label_col_name='y',
-          positive_data_value=1,
-          negative_data_value=0,
-          unlabeled_data_value=-1,
-      )
+    with self.subTest(name='two_input_sources_specified'):
+      with self.assertRaises(ValueError):
+        _ = parameters.RunnerParameters(
+            train_setting=parameters.TrainSetting.PNU,
+            input_bigquery_table_path='some_project.some_dataset.some_table',
+            data_input_gcs_uri='gs://some_bucket/some_data_input_path',
+            output_gcs_uri='gs://some_bucket/some_path',
+            label_col_name='y',
+            positive_data_value=1,
+            negative_data_value=0,
+            unlabeled_data_value=-1,
+        )
+    with self.subTest(name='no_input_sources_specified'):
+      with self.assertRaises(ValueError):
+        _ = parameters.RunnerParameters(
+            train_setting=parameters.TrainSetting.PNU,
+            input_bigquery_table_path=None,
+            data_input_gcs_uri=None,
+            output_gcs_uri='gs://some_bucket/some_path',
+            label_col_name='y',
+            positive_data_value=1,
+            negative_data_value=0,
+            unlabeled_data_value=-1,
+        )
 
   def test_equal_data_value_parameter_raises(self):
     with self.assertRaises(ValueError):
       _ = parameters.RunnerParameters(
           train_setting=parameters.TrainSetting.PNU,
           input_bigquery_table_path='some_project.some_dataset.some_table',
+          data_input_gcs_uri=None,
           output_gcs_uri='gs://some_bucket/some_path',
           label_col_name='y',
           positive_data_value=1,

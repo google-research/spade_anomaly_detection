@@ -32,8 +32,10 @@
 
 import dataclasses
 import enum
+from typing import Final, Optional, Sequence
 
-from typing import Optional, Sequence
+
+_RANDOM_SEED: Final[int] = 42
 
 
 @enum.unique
@@ -60,6 +62,10 @@ class RunnerParameters:
       'project.dataset.table'. If this is the only BigQuery path provided, this
       will be used in conjunction with test_dataset_holdout_fraction parameter
       to create a train/test split.
+    data_input_gcs_uri: Cloud Storage location to store the input data. If this
+      is the only Cloud Storage location provided, this will be used in
+      conjunction with test_dataset_holdout_fraction parameter to create a
+      train/test split.
     output_gcs_uri: Cloud Storage location to store the supervised model assets.
       The location should be in the form gs://bucketname/foldername. A timestamp
       will be added to the end of the folder so that multiple runs of this won't
@@ -104,15 +110,22 @@ class RunnerParameters:
     test_label_col_name: The label column name in the test dataset.
     test_dataset_holdout_fraction: Float between 0 and 1 representing the
       fraction of samples to hold out as a test set.
-    upload_only: Use this setting in conjunction with
-      output_bigquery_table_path. When True, the algorithm will just upload the
+    data_test_gcs_uri: Cloud Storage location to store the CSV data to be used
+      for evaluating the supervised model. Note that the positive and negative
+      label values must also be the same in this testing set. It is okay to have
+      your test labels in that form, or use 1 for positive and 0 for negative.
+    upload_only: Use this setting in conjunction with output_bigquery_table_path
+      or data_output_gcs_uri. When True, the algorithm will just upload the
       pseudo labeled data to the specified table, and will skip training a
       supervised model. When set to False, the algorithm will also train a
-      supervised model and upload to a GCS endpoint. Default is False.
+      supervised model and upload it to a GCS location. Default is False.
     output_bigquery_table_path: A complete BigQuery path in the form of
       'project.dataset.table' to be used for uploading the pseudo labeled data.
       This includes features and new labels. By default, we will use the column
       names from the input_bigquery_table_path BigQuery table.
+    data_output_gcs_uri: Cloud Storage location used for uploading the pseudo
+      labeled data as CSV. This includes features and new labels. By default, we
+      will use the column names from the data_input_gcs_uri table.
     alpha: Sample weights for weighting the loss function, only for
       pseudo-labeled data from the occ ensemble. Original data that is labeled
       will have a weight of 1.0.
@@ -133,6 +146,8 @@ class RunnerParameters:
       the less likely it is for all the models to gain consensus, and thus will
       reduce the amount of labeled data points. By default, we use 5 one class
       classifiers.
+    random_seed: The random seed to use for all random number generators in the
+      algorithm.
     verbose: The amount of console logs to display during training. Use False to
       show few messages, and True for displaying many aspects of model training
       and scoring. This is useful for debugging model performance.
@@ -140,6 +155,7 @@ class RunnerParameters:
 
   train_setting: TrainSetting
   input_bigquery_table_path: str
+  data_input_gcs_uri: str
   output_gcs_uri: str
   label_col_name: str
   positive_data_value: int
@@ -152,18 +168,28 @@ class RunnerParameters:
   test_bigquery_table_path: Optional[str] = None
   test_label_col_name: Optional[str] = None
   test_dataset_holdout_fraction: float = 0.2
+  data_test_gcs_uri: Optional[str] = None
   upload_only: bool = False
   output_bigquery_table_path: Optional[str] = None
+  data_output_gcs_uri: Optional[str] = None
   alpha: float = 1.0
   batches_per_model: int = 1
   max_occ_batch_size: int = 50000
   labeling_and_model_training_batch_size: Optional[int] = None
   ensemble_count: int = 5
+  random_seed: int = _RANDOM_SEED
   verbose: bool = False
 
   def __post_init__(self):
-    if not self.input_bigquery_table_path:
-      raise ValueError('`input_bigquery_table_path` must be set.')
+    if not (self.input_bigquery_table_path or self.data_input_gcs_uri):
+      raise ValueError(
+          '`input_bigquery_table_path` or `data_input_gcs_uri` must be set.'
+      )
+    if self.input_bigquery_table_path and self.data_input_gcs_uri:
+      raise ValueError(
+          'Both`input_bigquery_table_path` and `data_input_gcs_uri` should not '
+          'be set.'
+      )
     if not self.train_setting:
       raise ValueError('`train_setting` must be set.')
     if not self.output_gcs_uri:

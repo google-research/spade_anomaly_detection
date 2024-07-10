@@ -38,7 +38,7 @@ import functools
 import os
 import pathlib
 # TODO(b/247116870): Change to collections when Vertex supports python 3.9
-from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Final, List, Mapping, Optional, Sequence, Tuple, Union
 
 from absl import logging
 from google.cloud import bigquery
@@ -46,21 +46,21 @@ from google.cloud import storage
 from google.cloud.storage import transfer_manager
 import numpy as np
 import pandas as pd
-
 from spade_anomaly_detection import parameters
 from spade_anomaly_detection.data_utils import bq_dataset
 from spade_anomaly_detection.data_utils import bq_utils
 from spade_anomaly_detection.data_utils import feature_metadata
-
 import tensorflow as tf
 
-_DATA_ROOT = 'spade_anomaly_detection/example_data/'
+_DATA_ROOT: Final[str] = 'spade_anomaly_detection/example_data/'
 
 
 def load_dataframe(
     dataset_name: str,
     label_col_index: int = -1,
-    filter_label_value: Optional[Union[str, int]] = None,
+    filter_label_value: Optional[Union[str, int, list[str], list[int]]] = None,
+    index_col: Optional[int] = 0,
+    skiprows: Optional[int] = 1,
 ) -> Sequence[Union[pd.DataFrame, pd.Series]]:
   """Loads csv data located in the ./example_data directory for unit tests.
 
@@ -70,11 +70,16 @@ def load_dataframe(
     filter_label_value: Value to filter the label column on. Could be a string
       or an integer. If there is no value specified, no filtering will be
       performed.
+    index_col: Column to use for the index. If None, the index will be the
+      default index.
+    skiprows: Number of rows to skip when reading the CSV file.
 
   Returns:
     A tuple (features, labels), both are dataframes corresponding to the
     features and labels of the dataset respectively.
   """
+  if isinstance(filter_label_value, (str, int)):
+    filter_label_value = [filter_label_value]
 
   file_path = os.path.join(_DATA_ROOT, f'{dataset_name}.csv')
 
@@ -87,7 +92,9 @@ def load_dataframe(
   ]:
     raise ValueError(f'Unknown dataset_name: {dataset_name}')
 
-  dataframe = pd.read_csv(file_path, delimiter=',', skiprows=1, index_col=0)
+  dataframe = pd.read_csv(
+      file_path, delimiter=',', skiprows=skiprows, index_col=index_col
+  )
 
   if len(dataframe.shape) != 2:
     raise ValueError(
@@ -102,7 +109,7 @@ def load_dataframe(
 
   if filter_label_value is not None:
     dataframe = dataframe[
-        dataframe.iloc[:, label_col_index] == filter_label_value
+        dataframe.iloc[:, label_col_index].isin(filter_label_value)
     ]
 
   features = dataframe.drop(dataframe.columns[label_col_index], axis=1)
@@ -116,6 +123,8 @@ def load_tf_dataset_from_csv(
     label_col_index: int = -1,
     batch_size: Optional[int] = None,
     filter_label_value: Optional[Any] = None,
+    index_col: Optional[int] = 0,
+    skiprows: Optional[int] = 1,
     return_feature_count: bool = False,
 ) -> Union[tf.data.Dataset, Tuple[tf.data.Dataset, int]]:
   """Loads a TensorFlow dataset from the ./example_data directory.
@@ -130,6 +139,9 @@ def load_tf_dataset_from_csv(
       yield one record per call instead of a batch of records.
     filter_label_value: Value to filter the label column on. Could be a string
       or an integer.
+    index_col: Column to use for the index. If None, the index will be the
+      default index.
+    skiprows: Number of rows to skip when reading the CSV file.
     return_feature_count: If True, returns a tuple of the Dataset and the number
       of features.
 
@@ -138,7 +150,11 @@ def load_tf_dataset_from_csv(
       number of features,
   """
   features, labels = load_dataframe(
-      dataset_name, label_col_index, filter_label_value
+      dataset_name,
+      label_col_index,
+      filter_label_value,
+      index_col=index_col,
+      skiprows=skiprows,
   )
 
   feature_tensors = tf.convert_to_tensor(features, dtype=tf.dtypes.float32)
