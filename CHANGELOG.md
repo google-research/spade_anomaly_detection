@@ -18,10 +18,16 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
   * Define the new link url:
   `[2.0.0]: https://github.com/google-research/spade_anomaly_detection/compare/v1.0.0...v2.0.0`
   * Update the `[Unreleased]` url: `v1.0.0...HEAD` -> `v2.0.0...HEAD`
-
+* If updating the PyPi version, also update the `__version__` variable in the
+  `__init__.py` file at the root of the module.
 -->
 
 ## [Unreleased]
+
+## [0.3.0] - 2024-07-10
+
+* Add the ability to use CSV files on GCS as data input/output/test sources.
+* Miscellaneous bugfixes.
 
 ## [0.2.2] - 2024-05-19
 
@@ -39,7 +45,8 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 * Initial release
 
-[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/google-research/spade_anomaly_detection/compare/v0.1.0...v0.2.0
