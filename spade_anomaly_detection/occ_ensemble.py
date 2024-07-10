@@ -32,12 +32,15 @@
 # Using typing instead of collections due to Vertex training containers
 # not supporting them.
 
-from typing import MutableMapping, Sequence, Optional
+from typing import Final, MutableMapping, Optional, Sequence
 
 from absl import logging
 import numpy as np
 from sklearn import mixture
 import tensorflow as tf
+
+
+_RANDOM_SEED: Final[int] = 42
 
 
 # TODO(b/247116870): Create abstract class for templating out future OCC models.
@@ -86,6 +89,7 @@ class GmmEnsemble:
       ensemble_count: int = 5,
       positive_threshold: float = 1.0,
       negative_threshold: float = 95.0,
+      random_seed: int = _RANDOM_SEED,
       verbose: bool = False,
   ) -> None:
     self.n_components = n_components
@@ -95,6 +99,7 @@ class GmmEnsemble:
     self.ensemble_count = ensemble_count
     self.positive_threshold = positive_threshold
     self.negative_threshold = negative_threshold
+    self._random_seed = random_seed
     self.verbose = verbose
 
     self.ensemble = []
@@ -113,6 +118,7 @@ class GmmEnsemble:
         init_params=self.init_params,
         warm_start=self._warm_start,
         max_iter=self.max_iter,
+        random_state=self._random_seed,
     )
 
   def fit(

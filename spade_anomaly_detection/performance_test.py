@@ -36,15 +36,15 @@ individual modules and functions.
 
 from unittest import mock
 
+from spade_anomaly_detection import csv_data_loader
 from spade_anomaly_detection import data_loader
 from spade_anomaly_detection import parameters
 from spade_anomaly_detection import runner
 from spade_anomaly_detection import supervised_model
-
 import tensorflow as tf
 
 
-class PerformanceTest(tf.test.TestCase):
+class PerformanceTestOnBQData(tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -57,6 +57,7 @@ class PerformanceTest(tf.test.TestCase):
     self.runner_parameters = parameters.RunnerParameters(
         train_setting='PNU',
         input_bigquery_table_path='project_id.dataset.table_name',
+        data_input_gcs_uri=None,
         output_gcs_uri='gs://test_bucket/test_folder',
         label_col_name='label',
         positive_data_value=1,
@@ -76,26 +77,38 @@ class PerformanceTest(tf.test.TestCase):
     self.unlabeled_features, self.unlabeled_labels = data_loader.load_dataframe(
         dataset_name=csv_path,
         filter_label_value=self.runner_parameters.unlabeled_data_value,
+        index_col=None,
+        skiprows=0,
     )
     self.unlabeled_record_count = len(self.unlabeled_labels)
     _, negative_labels = data_loader.load_dataframe(
         dataset_name=csv_path,
         filter_label_value=self.runner_parameters.negative_data_value,
+        index_col=None,
+        skiprows=0,
     )
     self.negative_record_count = len(negative_labels)
 
     self.occ_fit_batch_size = (
-        self.unlabeled_record_count // self.runner_parameters.ensemble_count
+        (self.unlabeled_record_count + self.negative_record_count)
+        // self.runner_parameters.ensemble_count
     ) // self.runner_parameters.batches_per_model
 
     self.unlabeled_tensorflow_dataset = data_loader.load_tf_dataset_from_csv(
         dataset_name=csv_path,
         batch_size=self.occ_fit_batch_size,
-        filter_label_value=self.runner_parameters.unlabeled_data_value,
+        filter_label_value=[
+            self.runner_parameters.unlabeled_data_value,
+            self.runner_parameters.negative_data_value,
+        ],
+        index_col=None,
+        skiprows=0,
     )
     self.complete_tensorflow_dataset = data_loader.load_tf_dataset_from_csv(
         dataset_name=csv_path,
         batch_size=self.runner_parameters.labeling_and_model_training_batch_size,
+        index_col=None,
+        skiprows=0,
     )
 
     self.mock_get_total_records = self.enter_context(
@@ -142,7 +155,7 @@ class PerformanceTest(tf.test.TestCase):
     auc = runner_object.supervised_model_metrics['Supervised_Model_AUC']
     # See SPADE performance for Covertype PNU Setting in the design document for
     # setting and adjusting the AUC here. 0.9251 roughly equates to the
-    # performance seen on the ~580k row Coertype dataset in the PNU setting.
+    # performance seen on the ~580k row Covertype dataset in the PNU setting.
     self.assertAlmostEqual(auc, 0.9251, delta=0.02)
 
   def test_spade_auc_performance_pu_single_batch(self):
@@ -166,7 +179,162 @@ class PerformanceTest(tf.test.TestCase):
     auc = runner_object.supervised_model_metrics['Supervised_Model_AUC']
     # See SPADE performance for Covertype PU Setting in the design document for
     # setting and adjusting the AUC here. 0.8870 represents the performance seen
-    # on the ~580k row Coertype dataset in the PU setting.
+    # on the ~580k row Covertype dataset in the PU setting.
+    self.assertAlmostEqual(auc, 0.8870, delta=0.02)
+
+
+class PerformanceTestOnCSVData(tf.test.TestCase):
+
+  def setUp(self):
+    super().setUp()
+
+    # Using the 10k row covertype dataset here to speed up testing time. The
+    # 100k version was timing out on blaze.
+    self.total_record_count = 10000
+    csv_path = f'covertype_pnu_{self.total_record_count}'
+
+    self.runner_parameters = parameters.RunnerParameters(
+        train_setting='PNU',
+        input_bigquery_table_path='',
+        data_input_gcs_uri='gs://some_bucket/input_folder',
+        output_gcs_uri='gs://test_bucket/test_folder',
+        label_col_name='label',
+        positive_data_value=1,
+        negative_data_value=0,
+        unlabeled_data_value=-1,
+        positive_threshold=10,
+        negative_threshold=90,
+        test_dataset_holdout_fraction=0.3,
+        data_test_gcs_uri=None,
+        upload_only=False,
+        output_bigquery_table_path='',
+        data_output_gcs_uri=None,
+        alpha=1.0,
+        batches_per_model=1,
+        max_occ_batch_size=50000,
+        labeling_and_model_training_batch_size=self.total_record_count,
+        ensemble_count=5,
+        verbose=True,
+    )
+
+    _, self.unlabeled_labels = data_loader.load_dataframe(
+        dataset_name=csv_path,
+        filter_label_value=self.runner_parameters.unlabeled_data_value,
+        index_col=None,
+        skiprows=0,
+    )
+    self.unlabeled_record_count = len(self.unlabeled_labels)
+    _, positive_labels = data_loader.load_dataframe(
+        dataset_name=csv_path,
+        filter_label_value=self.runner_parameters.positive_data_value,
+        index_col=None,
+        skiprows=0,
+    )
+    self.positive_record_count = len(positive_labels)
+    _, negative_labels = data_loader.load_dataframe(
+        dataset_name=csv_path,
+        filter_label_value=self.runner_parameters.negative_data_value,
+        index_col=None,
+        skiprows=0,
+    )
+    self.negative_record_count = len(negative_labels)
+
+    self.label_counts = {
+        self.runner_parameters.positive_data_value: self.positive_record_count,
+        self.runner_parameters.negative_data_value: self.negative_record_count,
+        self.runner_parameters.unlabeled_data_value: (
+            self.unlabeled_record_count
+        ),
+    }
+
+    self.occ_fit_batch_size = (
+        (self.unlabeled_record_count + self.negative_record_count)
+        // self.runner_parameters.ensemble_count
+    ) // self.runner_parameters.batches_per_model
+
+    self.unlabeled_tensorflow_dataset = data_loader.load_tf_dataset_from_csv(
+        dataset_name=csv_path,
+        batch_size=self.occ_fit_batch_size,
+        filter_label_value=[
+            self.runner_parameters.unlabeled_data_value,
+            self.runner_parameters.negative_data_value,
+        ],
+        index_col=None,
+        skiprows=0,
+    )
+
+    self.complete_tensorflow_dataset = data_loader.load_tf_dataset_from_csv(
+        dataset_name=csv_path,
+        batch_size=self.runner_parameters.labeling_and_model_training_batch_size,
+        index_col=None,
+        skiprows=0,
+    )
+
+    self.mock_label_counts = self.enter_context(
+        mock.patch.object(
+            csv_data_loader.CsvDataLoader,
+            'label_counts',
+            new_callable=mock.PropertyMock,
+        )
+    )
+
+    self.mock_load_tf_dataset_from_csv = self.enter_context(
+        mock.patch.object(
+            csv_data_loader.CsvDataLoader,
+            'load_tf_dataset_from_csv',
+            autospec=True,
+        )
+    )
+
+    self.mock_supervised_model_save = self.enter_context(
+        mock.patch.object(
+            supervised_model.RandomForestModel,
+            'save',
+            autospec=True,
+            instance=True,
+        )
+    )
+
+  def test_spade_auc_performance_pnu_single_batch(self):
+    self.runner_parameters.train_setting = parameters.TrainSetting.PNU
+    self.runner_parameters.positive_threshold = 10
+    self.runner_parameters.negative_threshold = 90
+
+    self.mock_load_tf_dataset_from_csv.side_effect = [
+        self.complete_tensorflow_dataset,
+        self.unlabeled_tensorflow_dataset,
+        self.complete_tensorflow_dataset,
+    ]
+    self.mock_label_counts.return_value = self.label_counts
+
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    auc = runner_object.supervised_model_metrics['Supervised_Model_AUC']
+    # See SPADE performance for Covertype PNU Setting in the design document for
+    # setting and adjusting the AUC here. 0.9251 roughly equates to the
+    # performance seen on the ~580k row Coertype dataset in the PNU setting.
+    self.assertAlmostEqual(auc, 0.9251, delta=0.02)
+
+  def test_spade_auc_performance_pu_single_batch(self):
+    self.runner_parameters.train_setting = parameters.TrainSetting.PU
+    self.runner_parameters.positive_threshold = 10
+    self.runner_parameters.negative_threshold = 50
+
+    self.mock_load_tf_dataset_from_csv.side_effect = [
+        self.complete_tensorflow_dataset,
+        self.unlabeled_tensorflow_dataset,
+        self.complete_tensorflow_dataset,
+    ]
+    self.mock_label_counts.return_value = self.label_counts
+
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    auc = runner_object.supervised_model_metrics['Supervised_Model_AUC']
+    # See SPADE performance for Covertype PU Setting in the design document for
+    # setting and adjusting the AUC here. 0.8870 represents the performance seen
+    # on the ~580k row Covertype dataset in the PU setting.
     self.assertAlmostEqual(auc, 0.8870, delta=0.02)
 
 
