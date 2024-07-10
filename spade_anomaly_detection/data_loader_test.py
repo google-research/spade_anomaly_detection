@@ -57,6 +57,7 @@ class DataLoaderTest(tf.test.TestCase, parameterized.TestCase):
     self.runner_parameters = parameters.RunnerParameters(
         train_setting='PNU',
         input_bigquery_table_path='project.dataset.table',
+        data_input_gcs_uri=None,
         output_gcs_uri='gs://test_bucket/test_folder',
         label_col_name='label',
         positive_data_value=5,
@@ -67,7 +68,9 @@ class DataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         test_bigquery_table_path='',
         test_label_col_name='',
         test_dataset_holdout_fraction=0.3,
+        data_test_gcs_uri='',
         output_bigquery_table_path='',
+        data_output_gcs_uri='',
         alpha=1.0,
         batches_per_model=1,
         labeling_and_model_training_batch_size=None,
