@@ -385,30 +385,75 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
     all_features = self.data_df[["x1", "x2"]].to_numpy()
     all_labels = self.data_df["y"].to_numpy()
     # Create 2 batches of features and labels.
-    # TODO(b/347332980): Update test when pseudolabel flag is added.
     features1 = all_features[0:2]
     labels1 = all_labels[0:2]
+    # Add weights and flags to the first batch. These are pseudolabeled samples.
+    weights1 = (
+        np.repeat([0.1], len(features1))
+        .reshape(len(features1), 1)
+        .astype(np.float64)
+    )
+    flags1 = (
+        np.repeat([1], len(features1))
+        .reshape(len(features1), 1)
+        .astype(np.int64)
+    )
+    # Add weights and flags to the first batch. These are ground truth samples.
     features2 = all_features[2:]
     labels2 = all_labels[2:]
-    # Upload batch 1.
+    weights2 = (
+        np.repeat([1.0], len(features2))
+        .reshape(len(features2), 1)
+        .astype(np.float64)
+    )
+    flags2 = (
+        np.repeat([0], len(features2))
+        .reshape(len(features2), 1)
+        .astype(np.int64)
+    )    # Upload batch 1.
     data_loader.upload_dataframe_to_gcs(
         batch=1,
         features=features1,
         labels=labels1,
+        weights=weights1,
+        pseudolabel_flags=flags1,
     )
     # Upload batch 2.
     data_loader.upload_dataframe_to_gcs(
         batch=2,
         features=features2,
         labels=labels2,
+        weights=weights2,
+        pseudolabel_flags=flags2,
     )
     # Sorting means batch 1 file will be first.
     files_list = sorted(tf.io.gfile.listdir(output_dir))
     self.assertLen(files_list, 2)
-    expected_dfs = [
-        self.data_df.iloc[0:2].reset_index(drop=True),
-        self.data_df.iloc[2:].reset_index(drop=True),
-    ]
+    col_names = ["x1", "x2", "alpha", "is_pseudolabel", "y"]
+    expected_df1 = pd.concat(
+        [
+            self.data_df.iloc[0:2, 0:-1].reset_index(drop=True),
+            pd.DataFrame(weights1, columns=["alpha"]),
+            pd.DataFrame(flags1, columns=["is_pseudolabel"]),
+            self.data_df.iloc[0:2, -1].reset_index(drop=True),
+        ],
+        names=col_names,
+        ignore_index=True,
+        axis=1,
+    )
+    expected_df1.columns = col_names
+    expected_df2 = pd.concat(
+        [
+            self.data_df.iloc[2:, 0:-1].reset_index(drop=True),
+            pd.DataFrame(weights2, columns=["alpha"]),
+            pd.DataFrame(flags2, columns=["is_pseudolabel"]),
+            self.data_df.iloc[2:, -1].reset_index(drop=True),
+        ],
+        ignore_index=True,
+        axis=1,
+    )
+    expected_df2.columns = col_names
+    expected_dfs = [expected_df1, expected_df2]
     for i, file_name in enumerate(files_list):
       with self.subTest(msg=f"file_{i}"):
         file_path = os.path.join(output_dir, file_name)

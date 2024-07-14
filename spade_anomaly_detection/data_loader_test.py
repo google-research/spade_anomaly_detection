@@ -536,6 +536,117 @@ class DataLoaderTest(tf.test.TestCase, parameterized.TestCase):
           features=features, labels=labels
       )
 
+  @mock.patch.object(bigquery, 'LoadJobConfig', autospec=True)
+  def test_upload_dataframe_with_wts_flags_as_bigquery_table_no_error(
+      self, mock_bqclient_loadjobconfig
+  ):
+    self.runner_parameters.output_bigquery_table_path = (
+        'project.dataset.pseudo_labeled_data'
+    )
+    data_loader_object = data_loader.DataLoader(self.runner_parameters)
+    feature_column_names = [
+        'x1',
+        'x2',
+        data_loader.WEIGHT_COLUMN_NAME,
+        data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME,
+        self.runner_parameters.label_col_name,
+    ]
+
+    features = np.random.rand(10, 2).astype(np.float32)
+    labels = np.repeat(0, 10).reshape(10, 1).astype(np.int8)
+    # Two possible values for weight (alpha), repeated 10/2 = 5 times each.
+    weights = np.repeat([0.1, 1.0], 5).reshape(10, 1).astype(np.float32)
+    # The corresponding peseudolabel flags are False, True, repeated 5 times.
+    flags = np.repeat([1, 0], 5).reshape(10, 1).astype(np.int8)
+
+    tf_dataset_instance_mock = mock.create_autospec(
+        tf.data.Dataset, instance=True
+    )
+
+    feature1_metadata = feature_metadata.FeatureMetadata('x1', 0, 'FLOAT64')
+    feature2_metadata = feature_metadata.FeatureMetadata('x2', 0, 'FLOAT64')
+    label_metadata = feature_metadata.FeatureMetadata(
+        self.runner_parameters.label_col_name, 1, 'INT64'
+    )
+    metadata_container = feature_metadata.FeatureMetadataContainer(
+        [feature1_metadata, feature2_metadata, label_metadata]
+    )
+
+    self.mock_bq_dataset.return_value = (
+        tf_dataset_instance_mock,
+        metadata_container,
+    )
+
+    # Perform this call so that FeatureMetadata is set.
+    data_loader_object.load_tf_dataset_from_bigquery(
+        input_path=self.runner_parameters.input_bigquery_table_path,
+        label_col_name=self.runner_parameters.label_col_name,
+        batch_size=self.batch_size,
+    )
+
+    data_loader_object.upload_dataframe_as_bigquery_table(
+        features=features,
+        labels=labels,
+        weights=weights,
+        pseudolabel_flags=flags,
+    )
+    job_config_object = mock_bqclient_loadjobconfig.return_value
+
+    load_table_mock_kwargs = (
+        self.mock_bq_client.return_value.__enter__.return_value.load_table_from_dataframe.call_args.kwargs
+    )
+
+    with self.subTest(name='LabelColumnCorrect'):
+      self.assertListEqual(
+          list(
+              load_table_mock_kwargs['dataframe'][
+                  self.runner_parameters.label_col_name
+              ]
+          ),
+          list(labels),
+      )
+
+    with self.subTest(name='LabelColumnDataTypeBool'):
+      self.assertEqual(
+          load_table_mock_kwargs['dataframe'][
+              self.runner_parameters.label_col_name
+          ].dtype,
+          bool,
+      )
+
+    with self.subTest(name='WeightsColumnCorrect'):
+      self.assertListEqual(
+          list(
+              load_table_mock_kwargs['dataframe'][
+                  data_loader.WEIGHT_COLUMN_NAME
+              ]
+          ),
+          list(weights),
+      )
+
+    with self.subTest(name='PseudolabelFlagsColumnCorrect'):
+      self.assertListEqual(
+          list(
+              load_table_mock_kwargs['dataframe'][
+                  data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME
+              ]
+          ),
+          list(flags),
+      )
+
+    with self.subTest(name='EqualColumnNames'):
+      self.assertListEqual(
+          feature_column_names,
+          list(load_table_mock_kwargs['dataframe'].columns),
+      )
+    with self.subTest(name='EqualDestinationPath'):
+      self.assertEqual(
+          self.runner_parameters.output_bigquery_table_path,
+          load_table_mock_kwargs['destination'],
+      )
+    with self.subTest(name='EqualJobConfig'):
+      self.assertEqual(job_config_object, load_table_mock_kwargs['job_config'])
+
   def test_get_label_thresholds_no_error(self):
     mock_query_return_dictionary = {
         self.runner_parameters.label_col_name: [
