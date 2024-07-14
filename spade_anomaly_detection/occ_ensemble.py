@@ -224,10 +224,10 @@ class GmmEnsemble:
         scaler.
       labels: A numpy array of labels. Strings or integers can be used for
         denoting the positive, negative, or unlabeled features.
-      positive_data_value: The value used in the label column to denote
-        positive data - data points that are anomalous.
-      negative_data_value: The value used in the label column to denote
-        negative data - data points that are not anomalous.
+      positive_data_value: The value used in the label column to denote positive
+        data - data points that are anomalous.
+      negative_data_value: The value used in the label column to denote negative
+        data - data points that are not anomalous.
       unlabeled_data_value: The value used in the label column to denote
         unlabeled data.
       alpha: This value is used to adjust the influence of the pseudo labeled
@@ -238,9 +238,11 @@ class GmmEnsemble:
     Returns:
       A sequence including updated features (features for which we now have
       labels for), updated labels (includes pseudo labeled positive and negative
-      values, as well as ground truth), and the weights (correct alpha values)
-      for the new pseudo labeled data points. Labels are in the format of 1 for
-      positive and 0 for negative.
+      values, as well as ground truth), the weights (correct alpha values)
+      for the new pseudo labeled data points, and a binary flag that indicates
+      whether the data point is newly pseudolabeled, or ground truth. Labels are
+      in the format of 1 for positive and 0 for negative. Flag is 1 for
+      pseudo-labeled and 0 for ground truth.
     """
     original_positive_idx = np.where(labels == positive_data_value)[0]
     original_negative_idx = np.where(labels == negative_data_value)[0]
@@ -282,6 +284,15 @@ class GmmEnsemble:
         np.ones([len(original_negative_idx)])
     ],
                              axis=0)
+    pseudolabel_flags = np.concatenate(
+        [
+            np.ones(len(new_positive_indices)),
+            np.ones(len(new_negative_indices)),
+            np.zeros(len(original_positive_idx)),
+            np.zeros(len(original_negative_idx)),
+        ],
+        axis=0,
+    )
 
     if verbose:
       logging.info('Number of new positive labels: %s',
@@ -289,4 +300,4 @@ class GmmEnsemble:
       logging.info('Number of new negative labels: %s',
                    len(new_negative_indices))
 
-    return new_features, new_labels, weights
+    return new_features, new_labels, weights, pseudolabel_flags

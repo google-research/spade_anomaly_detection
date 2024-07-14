@@ -54,6 +54,9 @@ import tensorflow as tf
 
 _DATA_ROOT: Final[str] = 'spade_anomaly_detection/example_data/'
 
+WEIGHT_COLUMN_NAME: Final[str] = 'alpha'
+PSEUDOLABEL_FLAG_COLUMN_NAME: Final[str] = 'is_pseudolabel'
+
 
 def load_dataframe(
     dataset_name: str,
@@ -691,12 +694,19 @@ class DataLoader:
       self,
       features: np.ndarray,
       labels: np.ndarray,
+      weights: Optional[np.ndarray] = None,
+      pseudolabel_flags: Optional[np.ndarray] = None,
   ) -> None:
     """Uploads the dataframe to BigQuery, create or replace table.
 
     Args:
       features: Numpy array of features.
       labels: Numpy array of labels.
+      weights: Optional numpy array of weights.
+      pseudolabel_flags: Optional numpy array of pseudolabel flags.
+
+    Raises:
+      ValueError: If the metadata has not been read yet.
     """
     if not self.input_feature_metadata:
       raise ValueError(
@@ -705,11 +715,31 @@ class DataLoader:
           'load_tf_dataset_from_bigquery() before this method '
           'is called.'
       )
-    combined_data = np.concatenate(
-        [features, labels.reshape(len(features), 1)], axis=1
-    )
+    combined_data = features
 
+    # Get the list of feature and label column names.
     column_names = list(self.input_feature_metadata.names)
+
+    # If the weights are provided, add them to the column names and to the
+    # combined data.
+    if weights is not None:
+      column_names.append(WEIGHT_COLUMN_NAME)
+      combined_data = np.concatenate(
+          [combined_data, weights.reshape(len(features), 1)], axis=1
+      )
+
+    # If the pseudolabel flags are provided, add them to the column names and
+    # to the combined data.
+    if pseudolabel_flags is not None:
+      column_names.append(PSEUDOLABEL_FLAG_COLUMN_NAME)
+      combined_data = np.concatenate(
+          [combined_data, pseudolabel_flags.reshape(len(features), 1)], axis=1
+      )
+
+    # Make sure the label column is the last column.
+    combined_data = np.concatenate(
+        [combined_data, labels.reshape(len(features), 1)], axis=1
+    )
     column_names.remove(self.runner_parameters.label_col_name)
     column_names.append(self.runner_parameters.label_col_name)
 
@@ -721,6 +751,12 @@ class DataLoader:
     complete_dataframe[self.runner_parameters.label_col_name] = (
         complete_dataframe[self.runner_parameters.label_col_name].astype('bool')
     )
+
+    # Adjust pseudolabel flag column type.
+    if pseudolabel_flags is not None:
+      complete_dataframe[PSEUDOLABEL_FLAG_COLUMN_NAME] = complete_dataframe[
+          PSEUDOLABEL_FLAG_COLUMN_NAME
+      ].astype(np.int64)
 
     with bigquery.Client(
         project=self.table_parts.project_id

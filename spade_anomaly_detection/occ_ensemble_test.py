@@ -120,13 +120,15 @@ class OccEnsembleTest(tf.test.TestCase):
         np.where((labels == 0) | (labels == 1))[0]
     )
 
-    updated_features, updated_labels, weights = ensemble_obj.pseudo_label(
-        features=features,
-        labels=labels,
-        alpha=alpha,
-        positive_data_value=positive_data_value,
-        negative_data_value=negative_data_value,
-        unlabeled_data_value=unlabeled_data_value,
+    updated_features, updated_labels, weights, pseudolabel_flags = (
+        ensemble_obj.pseudo_label(
+            features=features,
+            labels=labels,
+            alpha=alpha,
+            positive_data_value=positive_data_value,
+            negative_data_value=negative_data_value,
+            unlabeled_data_value=unlabeled_data_value,
+        )
     )
 
     label_count_after_labeling = len(
@@ -155,10 +157,28 @@ class OccEnsembleTest(tf.test.TestCase):
           msg='Label count after labeling was not more than before.',
       )
 
+    with self.subTest(name='AlphaValuesCorrespondToPseudoLabels'):
+      # Note that this test will fail if the alpha value is 1.0 (the ground
+      # truth weight).
+      weights_are_alpha = np.where(weights == alpha)[0]
+      pseudolabel_flags_are_1 = np.where(pseudolabel_flags == 1)[0]
+      self.assertNDArrayNear(
+          weights_are_alpha,
+          pseudolabel_flags_are_1,
+          err=1e-6,
+          msg=(
+              'The data samples where the weights are equal to the alpha '
+              'values are not the same as the samples where the pseudolabel '
+              'flags are equal to 1.'
+          ),
+      )
+
     with self.subTest(name='LabelFeatureArraysEqual'):
       self.assertLen(updated_labels, len(updated_features))
-    with self.subTest(name='LabelWeightArraysEqual'):
+    with self.subTest(name='LabelWeightArraysEqualLen'):
       self.assertLen(updated_labels, len(weights))
+    with self.subTest(name='PseudolabelWeightArraysEqualLen'):
+      self.assertLen(pseudolabel_flags, len(weights))
 
 
 if __name__ == '__main__':

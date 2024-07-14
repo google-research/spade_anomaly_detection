@@ -772,14 +772,16 @@ class Runner:
       )
 
       logging.info('Labeling started.')
-      updated_features, updated_labels, weights = ensemble_object.pseudo_label(
-          features=train_x,
-          labels=train_y,
-          positive_data_value=self.runner_parameters.positive_data_value,
-          negative_data_value=self.runner_parameters.negative_data_value,
-          unlabeled_data_value=self.runner_parameters.unlabeled_data_value,
-          alpha=self.runner_parameters.alpha,
-          verbose=self.runner_parameters.verbose,
+      updated_features, updated_labels, weights, pseudolabel_flags = (
+          ensemble_object.pseudo_label(
+              features=train_x,
+              labels=train_y,
+              positive_data_value=self.runner_parameters.positive_data_value,
+              negative_data_value=self.runner_parameters.negative_data_value,
+              unlabeled_data_value=self.runner_parameters.unlabeled_data_value,
+              alpha=self.runner_parameters.alpha,
+              verbose=self.runner_parameters.verbose,
+          )
       )
       logging.info('Labeling completed.')
 
@@ -792,7 +794,10 @@ class Runner:
             data_loader.DataLoader, self.input_data_loader
         )
         self.input_data_loader.upload_dataframe_as_bigquery_table(
-            features=updated_features, labels=updated_labels
+            features=updated_features,
+            labels=updated_labels,
+            weights=weights,
+            pseudolabel_flags=pseudolabel_flags,
         )
       elif (
           self.runner_parameters.data_output_gcs_uri
@@ -805,6 +810,8 @@ class Runner:
             batch=batch_number,
             features=updated_features,
             labels=updated_labels,
+            weights=weights,
+            pseudolabel_flags=pseudolabel_flags,
         )
       else:
         logging.info('No output path specified, skipping upload.')

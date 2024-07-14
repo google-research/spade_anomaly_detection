@@ -38,6 +38,7 @@ from absl import logging
 from google.cloud import storage
 import numpy as np
 import pandas as pd
+from spade_anomaly_detection import data_loader
 from spade_anomaly_detection import parameters
 import tensorflow as tf
 
@@ -489,6 +490,8 @@ class CsvDataLoader:
       batch: int,
       features: np.ndarray,
       labels: np.ndarray,
+      weights: Optional[np.ndarray] = None,
+      pseudolabel_flags: Optional[np.ndarray] = None,
   ) -> None:
     """Uploads the dataframe to BigQuery, create or replace table.
 
@@ -496,6 +499,8 @@ class CsvDataLoader:
       batch: The batch number of the pseudo-labeled data.
       features: Numpy array of features.
       labels: Numpy array of labels.
+      weights: Optional numpy array of weights.
+      pseudolabel_flags: Optional numpy array of pseudolabel flags.
 
     Returns:
       None.
@@ -515,15 +520,37 @@ class CsvDataLoader:
           'Data output GCS URI is not set in the runner parameters. Please set '
           'the `data_output_gcs_uri` field in the runner parameters.'
       )
-    combined_data = np.concatenate(
-        [features, labels.reshape(len(features), 1)], axis=1
-    )
+    combined_data = features
 
     column_names = list(
         self._last_read_metadata.column_names_info.column_names_dict.keys()
     )
+
+    # If the weights are provided, add them to the column names and to the
+    # combined data.
+    if weights is not None:
+      column_names.append(data_loader.WEIGHT_COLUMN_NAME)
+      combined_data = np.concatenate(
+          [combined_data, weights.reshape(len(features), 1).astype(np.float64)],
+          axis=1,
+      )
+
+    # If the pseudolabel flags are provided, add them to the column names and
+    # to the combined data.
+    if pseudolabel_flags is not None:
+      column_names.append(data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME)
+      combined_data = np.concatenate(
+          [
+              combined_data,
+              pseudolabel_flags.reshape(len(features), 1).astype(np.int64),
+          ],
+          axis=1,
+      )
+
     # Make sure the label column is the last column.
-    # TODO(b/347332980): Add support for the pseudolabel flag.
+    combined_data = np.concatenate(
+        [combined_data, labels.reshape(len(features), 1)], axis=1
+    )
     column_names.remove(self.runner_parameters.label_col_name)
     column_names.append(self.runner_parameters.label_col_name)
 
@@ -535,6 +562,14 @@ class CsvDataLoader:
     complete_dataframe[self.runner_parameters.label_col_name] = (
         complete_dataframe[self.runner_parameters.label_col_name].astype('bool')
     )
+
+    # Adjust pseudolabel flag column type.
+    if pseudolabel_flags is not None:
+      complete_dataframe[data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME] = (
+          complete_dataframe[data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME].astype(
+              np.int64
+          )
+      )
 
     output_path = os.path.join(
         self.runner_parameters.data_output_gcs_uri,

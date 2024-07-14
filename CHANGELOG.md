@@ -24,6 +24,10 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 ## [Unreleased]
 
+## [0.3.1] - 2024-07-13
+
+* Now writes out the pseudolabel weights and a flag that indicates whether a sample has a ground truth label (0) or a pseudolabel (1).
+
 ## [0.3.0] - 2024-07-10
 
 * Add the ability to use CSV files on GCS as data input/output/test sources.
@@ -45,7 +49,8 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 * Initial release
 
-[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/google-research/spade_anomaly_detection/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.0...v0.2.1

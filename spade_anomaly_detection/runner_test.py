@@ -437,6 +437,7 @@ class RunnerBQTest(tf.test.TestCase):
         np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
+        np.empty((1, 1)),
     )
     runner_object = runner.Runner(self.runner_parameters)
 
@@ -480,6 +481,7 @@ class RunnerBQTest(tf.test.TestCase):
         np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
+        np.empty((1, 1)),
     )
     self.runner_parameters.verbose = True
     self.runner_parameters.test_dataset_holdout_fraction = 0.2
@@ -514,6 +516,7 @@ class RunnerBQTest(tf.test.TestCase):
   @mock.patch.object(occ_ensemble.GmmEnsemble, 'pseudo_label', autospec=True)
   def test_preprocessing_pnu_no_error(self, mock_pseudo_label):
     mock_pseudo_label.return_value = (
+        np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
@@ -562,6 +565,7 @@ class RunnerBQTest(tf.test.TestCase):
       mock_pseudo_label,
   ):
     mock_pseudo_label.return_value = (
+        np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
