@@ -301,6 +301,27 @@ _ENSEMBLE_COUNT = flags.DEFINE_integer(
     ),
 )
 
+_N_COMPONENTS = flags.DEFINE_integer(
+    "n_components",
+    default=1,
+    required=False,
+    help=(
+        "The number of components to use in the one class classifier ensemble. "
+        "By default, we use 1 component."
+    ),
+)
+
+_COVARIANCE_TYPE = flags.DEFINE_string(
+    "covariance_type",
+    default="full",
+    required=False,
+    help=(
+        "The covariance type to use in the one class classifier ensemble. By "
+        "default, we use 'full' covariance. Note that when there are many "
+        "components, a 'full' covariance matrix may not be suitable."
+    ),
+)
+
 _VERBOSE = flags.DEFINE_bool(
     "verbose",
     default=False,
@@ -367,6 +388,8 @@ def main(argv: Sequence[str]) -> None:
       max_occ_batch_size=_MAX_OCC_BATCH_SIZE.value,
       labeling_and_model_training_batch_size=_BATCH_SIZE.value,
       ensemble_count=_ENSEMBLE_COUNT.value,
+      n_components=_N_COMPONENTS.value,
+      covariance_type=_COVARIANCE_TYPE.value,
       random_seed=_RANDOM_SEED,
       verbose=_VERBOSE.value,
   )
