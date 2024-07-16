@@ -146,6 +146,11 @@ class RunnerParameters:
       the less likely it is for all the models to gain consensus, and thus will
       reduce the amount of labeled data points. By default, we use 5 one class
       classifiers.
+    n_components: The number of components to use in the one class classifier
+      ensemble. By default, we use 1 component.
+    covariance_type: The covariance type to use in the one class classifier
+      ensemble. By default, we use 'full' covariance. Note that when there are
+      many components, a 'full' covariance matrix may not be suitable.
     random_seed: The random seed to use for all random number generators in the
       algorithm.
     verbose: The amount of console logs to display during training. Use False to
@@ -177,6 +182,8 @@ class RunnerParameters:
   max_occ_batch_size: int = 50000
   labeling_and_model_training_batch_size: Optional[int] = None
   ensemble_count: int = 5
+  n_components: int = 1
+  covariance_type: str = 'full'
   random_seed: int = _RANDOM_SEED
   verbose: bool = False
 

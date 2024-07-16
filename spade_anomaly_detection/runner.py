@@ -276,6 +276,8 @@ class Runner:
     """
 
     ensemble_object = occ_ensemble.GmmEnsemble(
+        n_components=self.runner_parameters.n_components,
+        covariance_type=self.runner_parameters.covariance_type,
         ensemble_count=self.runner_parameters.ensemble_count,
         positive_threshold=self.runner_parameters.positive_threshold,
         negative_threshold=self.runner_parameters.negative_threshold,

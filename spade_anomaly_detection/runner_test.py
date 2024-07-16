@@ -75,6 +75,8 @@ class RunnerBQTest(tf.test.TestCase):
         max_occ_batch_size=50000,
         labeling_and_model_training_batch_size=None,
         ensemble_count=5,
+        n_components=1,
+        covariance_type='full',
         verbose=False,
     )
 
