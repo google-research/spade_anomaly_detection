@@ -26,40 +26,46 @@ PROJECT_ID=${1:-"[insert-project-id]"}
 DATETIME=$(date '+%Y%m%d_%H%M%S')
 
 #Args
-TRAIN_SETTING=${15:-"PNU"}
+TRAIN_SETTING=${2:-"PNU"}
 
-INPUT_BIGQUERY_TABLE_PATH=${2:-"${PROJECT_ID}.[bq-dataset].[bq-input-table]"}
-OUTPUT_BIGQUERY_TABLE_PATH=${23:-"${PROJECT_ID}.[bq-dataset].[bq-output-table]"}
-OUTPUT_GCS_URI=${14:-"gs://[gcs-bucket]/[model-folder]"}
-LABEL_COL_NAME=${3:-"y"}
+# Use either Bigquery or GCS for input/output/test data.
+INPUT_BIGQUERY_TABLE_PATH=${3:-"${PROJECT_ID}.[bq-dataset].[bq-input-table]"}
+DATA_INPUT_GCS_URI=${4:-""}
+OUTPUT_BIGQUERY_TABLE_PATH=${5:-"${PROJECT_ID}.[bq-dataset].[bq-output-table]"}
+DATA_OUTPUT_GCS_URI=${6:-""}
+OUTPUT_GCS_URI=${7:-"gs://[gcs-bucket]/[model-folder]"}
+LABEL_COL_NAME=${8:-"y"}
 # The label column is of type float, these must match in order for array
 # filtering to work correctly.
-POSITIVE_DATA_VALUE=${4:-"1"}
-NEGATIVE_DATA_VALUE=${5:-"0"}
-UNLABELED_DATA_VALUE=${6:-"-1"}
-POSITIVE_THRESHOLD=${7:-".1"}
-NEGATIVE_THRESHOLD=${8:-"95"}
-TEST_BIGQUERY_TABLE_PATH=${16:-"${PROJECT_ID}.[bq-dataset].[bq-test-table]"}
-TEST_LABEL_COL_NAME=${17:-"y"}
-ALPHA=${10:-"1.0"}
-BATCHES_PER_MODEL=${11:-"1"}
-ENSEMBLE_COUNT=${12:-"5"}
-MAX_OCC_BATCH_SIZE=${18:-"50000"}
-LABELING_AND_MODEL_TRAINING_BATCH_SIZE=${21:-"100000"}
-VERBOSE=${13:-"True"}
-UPLOAD_ONLY=${22:-"False"}
+POSITIVE_DATA_VALUE=${9:-"1"}
+NEGATIVE_DATA_VALUE=${10:-"0"}
+UNLABELED_DATA_VALUE=${11:-"-1"}
+POSITIVE_THRESHOLD=${12:-".1"}
+NEGATIVE_THRESHOLD=${13:-"95"}
+TEST_BIGQUERY_TABLE_PATH=${14:-"${PROJECT_ID}.[bq-dataset].[bq-test-table]"}
+DATA_TEST_GCS_URI=${15:-""}
+TEST_LABEL_COL_NAME=${16:-"y"}
+ALPHA=${17:-"1.0"}
+BATCHES_PER_MODEL=${18:-"1"}
+ENSEMBLE_COUNT=${19:-"5"}
+N_COMPONENTS=${20:-"1"}
+COVARIANCE_TYPE=${21:-"full"}
+MAX_OCC_BATCH_SIZE=${22:-"50000"}
+LABELING_AND_MODEL_TRAINING_BATCH_SIZE=${23:-"100000"}
+VERBOSE=${24:-"True"}
+UPLOAD_ONLY=${25:-"False"}
 
 # Give a unique name to your training job.
 TRIAL_NAME="spade_${USER}_${DATETIME}"
 
 # Image name and location
 IMAGE_NAME="spade"
-IMAGE_TAG=${7:-"latest-oss"}
+IMAGE_TAG=${26:-"latest-oss"}
 # Project image (use this for testing)
 IMAGE_URI="us-docker.pkg.dev/${PROJECT_ID}/spade/${IMAGE_NAME}:${IMAGE_TAG}"
 echo "IMAGE_URI = ${IMAGE_URI}"
 
-BUILD=${14:-"TRUE"}
+BUILD=${27:-"TRUE"}
 
 if [[ "${BUILD}" == "TRUE" ]]; then
   /bin/bash ./scripts/build_and_push_image.sh "${IMAGE_TAG}" "${IMAGE_NAME}" "${PROJECT_ID}" || exit
@@ -77,7 +83,9 @@ gcloud ai custom-jobs create \
   --worker-pool-spec="${WORKER_MACHINE}",replica-count=1,container-image-uri="${IMAGE_URI}" \
   --args=--train_setting="${TRAIN_SETTING}" \
   --args=--input_bigquery_table_path="${INPUT_BIGQUERY_TABLE_PATH}" \
+  --args=--data_input_gcs_uri="${DATA_INPUT_GCS_URI}" \
   --args=--output_bigquery_table_path="${OUTPUT_BIGQUERY_TABLE_PATH}" \
+  --args=--data_output_gcs_uri="${DATA_OUTPUT_GCS_URI}" \
   --args=--output_gcs_uri="${OUTPUT_GCS_URI}" \
   --args=--label_col_name="${LABEL_COL_NAME}" \
   --args=--positive_data_value="${POSITIVE_DATA_VALUE}" \
@@ -86,10 +94,13 @@ gcloud ai custom-jobs create \
   --args=--positive_threshold="${POSITIVE_THRESHOLD}" \
   --args=--negative_threshold="${NEGATIVE_THRESHOLD}" \
   --args=--test_bigquery_table_path="${TEST_BIGQUERY_TABLE_PATH}" \
+  --args=--data_test_gcs_uri="${DATA_TEST_GCS_URI}" \
   --args=--test_label_col_name="${TEST_LABEL_COL_NAME}" \
   --args=--alpha="${ALPHA}" \
   --args=--batches_per_model="${BATCHES_PER_MODEL}" \
   --args=--ensemble_count="${ENSEMBLE_COUNT}" \
+  --args=--n_components="${N_COMPONENTS}" \
+  --args=--covariance_type="${COVARIANCE_TYPE}" \
   --args=--max_occ_batch_size="${MAX_OCC_BATCH_SIZE}" \
   --args=--labeling_and_model_training_batch_size="${LABELING_AND_MODEL_TRAINING_BATCH_SIZE}" \
   --args=--upload_only="${UPLOAD_ONLY}" \

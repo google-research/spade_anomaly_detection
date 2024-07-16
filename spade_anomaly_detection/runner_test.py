@@ -35,7 +35,7 @@ from unittest import mock
 
 import numpy as np
 from parameterized import parameterized
-
+from spade_anomaly_detection import csv_data_loader
 from spade_anomaly_detection import data_loader
 from spade_anomaly_detection import occ_ensemble
 from spade_anomaly_detection import parameters
@@ -45,7 +45,7 @@ import tensorflow as tf
 import tensorflow_decision_forests as tfdf
 
 
-class RunnerTest(tf.test.TestCase):
+class RunnerBQTest(tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -53,6 +53,7 @@ class RunnerTest(tf.test.TestCase):
     self.runner_parameters = parameters.RunnerParameters(
         train_setting='PNU',
         input_bigquery_table_path='project.dataset.table',
+        data_input_gcs_uri=None,
         output_gcs_uri='gs://test_bucket/test_folder',
         label_col_name='label',
         positive_data_value=5,
@@ -65,13 +66,17 @@ class RunnerTest(tf.test.TestCase):
         test_bigquery_table_path='',
         test_label_col_name='',
         test_dataset_holdout_fraction=0.3,
+        data_test_gcs_uri=None,
         upload_only=False,
         output_bigquery_table_path='',
+        data_output_gcs_uri=None,
         alpha=1.0,
         batches_per_model=1,
         max_occ_batch_size=50000,
         labeling_and_model_training_batch_size=None,
         ensemble_count=5,
+        n_components=1,
+        covariance_type='full',
         verbose=False,
     )
 
@@ -129,6 +134,7 @@ class RunnerTest(tf.test.TestCase):
         self.per_class_labeled_example_count * 2
     ) + self.unlabeled_examples
     self.total_test_records = self.per_class_labeled_example_count * 2
+    self.negative_examples = self.per_class_labeled_example_count * 1
 
     unlabeled_features = np.random.rand(
         self.unlabeled_examples, num_features
@@ -168,14 +174,14 @@ class RunnerTest(tf.test.TestCase):
     ).batch(batch_size_all_data, drop_remainder=True)
 
     records_per_occ = (
-        self.unlabeled_examples // self.runner_parameters.ensemble_count
-    )
+        self.unlabeled_examples + self.negative_examples
+    ) // self.runner_parameters.ensemble_count
     unlabeled_batch_size = (
         records_per_occ // self.runner_parameters.batches_per_model
     )
     self.unlabeled_data_tf_dataset = tf.data.Dataset.from_tensor_slices(
         (unlabeled_features, unlabeled_labels)
-    ).batch(unlabeled_batch_size, drop_remainder=True)
+    ).batch(unlabeled_batch_size)
 
     if self.runner_parameters.test_bigquery_table_path:
       self.test_labels = np.repeat(
@@ -193,7 +199,7 @@ class RunnerTest(tf.test.TestCase):
       ).astype(np.float32)
       self.test_tf_dataset = tf.data.Dataset.from_tensor_slices(
           (self.test_features, self.test_labels)
-      ).batch(self.total_test_records, drop_remainder=True)
+      ).batch(self.total_test_records)
 
       self.mock_load_tf_dataset_from_bigquery.side_effect = [
           self.unlabeled_data_tf_dataset,
@@ -203,6 +209,7 @@ class RunnerTest(tf.test.TestCase):
       self.mock_get_query_record_result_length.side_effect = [
           self.all_examples,
           self.unlabeled_examples,
+          self.negative_examples,
           self.total_test_records,
       ]
     else:
@@ -213,6 +220,7 @@ class RunnerTest(tf.test.TestCase):
       self.mock_get_query_record_result_length.side_effect = [
           self.all_examples,
           self.unlabeled_examples,
+          self.negative_examples,
       ]
 
   def test_runner_data_loader_no_error(self):
@@ -228,8 +236,14 @@ class RunnerTest(tf.test.TestCase):
           label_col_name=self.runner_parameters.label_col_name,
           where_statements=self.runner_parameters.where_statements,
           ignore_columns=self.runner_parameters.ignore_columns,
-          label_column_filter_value=self.runner_parameters.unlabeled_data_value,
-          batch_size=self.unlabeled_examples
+          # Verify that both negative and unlabeled samples are used.
+          label_column_filter_value=[
+              self.runner_parameters.unlabeled_data_value,
+              self.runner_parameters.negative_data_value,
+          ],
+          # Verify that batch size is computed with both negative and unlabeled
+          # sample counts.
+          batch_size=(self.unlabeled_examples + self.negative_examples)
           // self.runner_parameters.ensemble_count,
       )
     # Assert that the data loader is also called to fetch all records.
@@ -311,7 +325,7 @@ class RunnerTest(tf.test.TestCase):
 
   def test_runner_record_count_raise_error(self):
     self.runner_parameters.ensemble_count = 10
-    self.mock_get_query_record_result_length.side_effect = [5, 0]
+    self.mock_get_query_record_result_length.side_effect = [5, 0, 1]
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertRaisesRegex(
@@ -320,7 +334,7 @@ class RunnerTest(tf.test.TestCase):
       runner_object.run()
 
   def test_runner_no_records_raise_error(self):
-    self.mock_get_query_record_result_length.side_effect = [0, 0]
+    self.mock_get_query_record_result_length.side_effect = [0, 0, 0]
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertRaisesRegex(
@@ -340,7 +354,7 @@ class RunnerTest(tf.test.TestCase):
 
   def test_record_count_warning_raise(self):
     # Will raise a warning when there are < 1k samples in the entire dataset.
-    self.mock_get_query_record_result_length.side_effect = [500, 100]
+    self.mock_get_query_record_result_length.side_effect = [500, 100, 10]
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertLogs() as training_logs:
@@ -425,6 +439,7 @@ class RunnerTest(tf.test.TestCase):
         np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
+        np.empty((1, 1)),
     )
     runner_object = runner.Runner(self.runner_parameters)
 
@@ -452,7 +467,7 @@ class RunnerTest(tf.test.TestCase):
 
   def test_batch_size_too_large_throw_error(self):
     self.runner_parameters.labeling_and_model_training_batch_size = 1000
-    self.mock_get_query_record_result_length.side_effect = [100, 5]
+    self.mock_get_query_record_result_length.side_effect = [100, 5, 10]
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertRaisesRegex(
@@ -465,6 +480,7 @@ class RunnerTest(tf.test.TestCase):
   @mock.patch.object(occ_ensemble.GmmEnsemble, 'pseudo_label', autospec=True)
   def test_preprocessing_pu_no_error(self, mock_pseudo_label):
     mock_pseudo_label.return_value = (
+        np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
@@ -502,6 +518,7 @@ class RunnerTest(tf.test.TestCase):
   @mock.patch.object(occ_ensemble.GmmEnsemble, 'pseudo_label', autospec=True)
   def test_preprocessing_pnu_no_error(self, mock_pseudo_label):
     mock_pseudo_label.return_value = (
+        np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
@@ -550,6 +567,7 @@ class RunnerTest(tf.test.TestCase):
       mock_pseudo_label,
   ):
     mock_pseudo_label.return_value = (
+        np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
         np.empty((1, 1)),
@@ -638,7 +656,7 @@ class RunnerTest(tf.test.TestCase):
 
     self._assert_regex_in(
         training_logs.output,
-        r'Only a test holdout fraction and a single input table',
+        r'Only a test holdout fraction and a single input source',
     )
 
   def test_dataset_creation_function_calls_no_error(self):
@@ -653,14 +671,20 @@ class RunnerTest(tf.test.TestCase):
       self.mock_get_query_record_result_length.assert_any_call(
           mock.ANY,
           input_path=self.runner_parameters.test_bigquery_table_path,
-          where_statements=self.runner_parameters.where_statements,
+          where_statements=[
+              f'{self.runner_parameters.test_label_col_name} !='
+              f' {self.runner_parameters.unlabeled_data_value}'
+          ],
       )
     with self.subTest('TestTableDataLoader'):
       self.mock_load_tf_dataset_from_bigquery.assert_any_call(
           mock.ANY,
           input_path=self.runner_parameters.test_bigquery_table_path,
           label_col_name=self.runner_parameters.test_label_col_name,
-          where_statements=self.runner_parameters.where_statements,
+          where_statements=[
+              f'{self.runner_parameters.test_label_col_name} !='
+              f' {self.runner_parameters.unlabeled_data_value}'
+          ],
           ignore_columns=self.runner_parameters.ignore_columns,
           batch_size=self.total_test_records,
       )
@@ -689,6 +713,7 @@ class RunnerTest(tf.test.TestCase):
     self.mock_get_query_record_result_length.side_effect = [
         self.all_examples,
         self.unlabeled_examples,
+        self.negative_examples,
         total_test_records,
     ]
 
@@ -719,10 +744,13 @@ class RunnerTest(tf.test.TestCase):
   def test_upload_only_setting_true_throw_error_no_table(self):
     self.runner_parameters.upload_only = True
     self.runner_parameters.output_bigquery_table_path = ''
+    self.runner_parameters.data_output_gcs_uri = ''
     runner_object = runner.Runner(self.runner_parameters)
 
     with self.assertRaisesRegex(
-        ValueError, r'output_bigquery_table_path needs to be specified in'
+        ValueError,
+        r'output_bigquery_table_path or data_output_gcs_uri needs to be '
+        r'specified in',
     ):
       runner_object.run()
 
@@ -760,7 +788,7 @@ class RunnerTest(tf.test.TestCase):
     ):
       runner_object.evaluate_model()
 
-  def test_evaluatiom_dataset_batch_training(self):
+  def test_evaluation_dataset_batch_training(self):
     self.runner_parameters.test_dataset_holdout_fraction = 0.5
     # Set batch size to ensure that we are building a test set over multiple
     # batches from the entire dataset.
@@ -821,6 +849,208 @@ class RunnerTest(tf.test.TestCase):
         runner_object.runner_parameters.negative_threshold,
         expected_negative,
     )
+
+
+class RunnerCSVTest(tf.test.TestCase):
+
+  def setUp(self):
+    super().setUp()
+
+    self.runner_parameters = parameters.RunnerParameters(
+        train_setting='PNU',
+        input_bigquery_table_path='',
+        data_input_gcs_uri='gs://some_bucket/input_folder',
+        output_gcs_uri='gs://test_bucket/test_folder',
+        label_col_name='label',
+        positive_data_value=5,
+        negative_data_value=3,
+        unlabeled_data_value=-100,
+        positive_threshold=5,
+        negative_threshold=95,
+        ignore_columns=None,
+        where_statements=None,
+        test_bigquery_table_path='',
+        test_label_col_name='',
+        test_dataset_holdout_fraction=0.3,
+        data_test_gcs_uri=None,
+        upload_only=False,
+        output_bigquery_table_path='',
+        data_output_gcs_uri=None,
+        alpha=1.0,
+        batches_per_model=1,
+        max_occ_batch_size=50000,
+        labeling_and_model_training_batch_size=None,
+        ensemble_count=5,
+        verbose=False,
+    )
+
+    self.mock_label_counts = self.enter_context(
+        mock.patch.object(
+            csv_data_loader.CsvDataLoader,
+            'label_counts',
+            new_callable=mock.PropertyMock,
+        )
+    )
+
+    self.mock_load_tf_dataset_from_csv = self.enter_context(
+        mock.patch.object(
+            csv_data_loader.CsvDataLoader,
+            'load_tf_dataset_from_csv',
+            autospec=True,
+        )
+    )
+    self.mock_supervised_model_train = self.enter_context(
+        mock.patch.object(
+            supervised_model.RandomForestModel,
+            'train',
+            autospec=True,
+        )
+    )
+    self.mock_supervised_model_save = self.enter_context(
+        mock.patch.object(
+            supervised_model.RandomForestModel,
+            'save',
+            autospec=True,
+        )
+    )
+    self.mock_supervised_model_evaluate = self.enter_context(
+        mock.patch.object(
+            tfdf.keras.RandomForestModel,
+            'evaluate',
+            autospec=True,
+        )
+    )
+    self.mock_csv_upload = self.enter_context(
+        mock.patch.object(
+            csv_data_loader.CsvDataLoader,
+            'upload_dataframe_to_gcs',
+            autospec=True,
+        )
+    )
+
+    self._create_mock_datasets()
+
+  def _create_mock_datasets(self) -> None:
+    num_features = 2
+    self.per_class_labeled_example_count = 10
+    self.unlabeled_examples = 200
+    self.all_examples = (
+        self.per_class_labeled_example_count * 2
+    ) + self.unlabeled_examples
+    self.total_test_records = self.per_class_labeled_example_count * 2
+    self.negative_examples = self.per_class_labeled_example_count * 1
+    self.label_counts = {
+        self.runner_parameters.positive_data_value: (
+            self.per_class_labeled_example_count
+        ),
+        self.runner_parameters.negative_data_value: self.negative_examples,
+        self.runner_parameters.unlabeled_data_value: self.unlabeled_examples,
+    }
+    unlabeled_features = np.random.rand(
+        self.unlabeled_examples, num_features
+    ).astype(np.float32)
+    unlabeled_labels = np.repeat(
+        self.runner_parameters.unlabeled_data_value, self.unlabeled_examples
+    )
+
+    all_features = np.random.rand(self.all_examples, num_features).astype(
+        np.float32
+    )
+
+    all_labels = np.concatenate(
+        [
+            np.repeat(
+                self.runner_parameters.positive_data_value,
+                self.per_class_labeled_example_count,
+            ),
+            np.repeat(
+                self.runner_parameters.negative_data_value,
+                self.per_class_labeled_example_count,
+            ),
+            unlabeled_labels,
+        ],
+        axis=0,
+    ).astype(np.int8)
+
+    if self.runner_parameters.labeling_and_model_training_batch_size is None:
+      batch_size_all_data = self.all_examples
+    else:
+      batch_size_all_data = (
+          self.runner_parameters.labeling_and_model_training_batch_size
+      )
+
+    self.all_data_tf_dataset = tf.data.Dataset.from_tensor_slices(
+        (all_features, all_labels)
+    ).batch(batch_size_all_data, drop_remainder=True)
+
+    records_per_occ = (
+        self.unlabeled_examples + self.negative_examples
+    ) // self.runner_parameters.ensemble_count
+    unlabeled_batch_size = (
+        records_per_occ // self.runner_parameters.batches_per_model
+    )
+    self.unlabeled_data_tf_dataset = tf.data.Dataset.from_tensor_slices(
+        (unlabeled_features, unlabeled_labels)
+    ).batch(unlabeled_batch_size)
+
+    if (
+        self.runner_parameters.test_bigquery_table_path
+        or self.runner_parameters.data_test_gcs_uri
+    ):
+      self.test_labels = np.repeat(
+          [
+              self.runner_parameters.positive_data_value,
+              self.runner_parameters.negative_data_value,
+          ],
+          [
+              self.per_class_labeled_example_count,
+              self.per_class_labeled_example_count,
+          ],
+      )
+      self.test_features = np.random.rand(
+          self.total_test_records, num_features
+      ).astype(np.float32)
+      self.test_tf_dataset = tf.data.Dataset.from_tensor_slices(
+          (self.test_features, self.test_labels)
+      ).batch(self.total_test_records)
+
+      self.mock_load_tf_dataset_from_csv.side_effect = [
+          self.all_data_tf_dataset,
+          self.unlabeled_data_tf_dataset,
+          self.all_data_tf_dataset,
+          self.test_tf_dataset,
+      ]
+      self.mock_label_counts.return_value = self.label_counts
+    else:
+      self.mock_load_tf_dataset_from_csv.side_effect = [
+          self.all_data_tf_dataset,
+          self.unlabeled_data_tf_dataset,
+          self.all_data_tf_dataset,
+      ]
+      self.mock_label_counts.return_value = self.label_counts
+
+  def test_runner_supervised_model_fit_with_csv_data(self):
+    self.runner_parameters.alpha = 0.8
+    self.runner_parameters.negative_threshold = 0
+
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    supervised_model_actual_kwargs = (
+        self.mock_supervised_model_train.call_args.kwargs
+    )
+
+    with self.subTest('NoUnlabeledData'):
+      self.assertNotIn(
+          self.runner_parameters.unlabeled_data_value,
+          supervised_model_actual_kwargs['labels'],
+          msg='Unlabeled data was used to fit the supervised model.',
+      )
+    with self.subTest('LabelWeights'):
+      self.assertIn(
+          self.runner_parameters.alpha,
+          supervised_model_actual_kwargs['weights'],
+      )
 
 
 if __name__ == '__main__':

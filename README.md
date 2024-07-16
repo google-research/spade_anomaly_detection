@@ -15,6 +15,8 @@
 
 [Semi-supervised Pseudo Labeler Anomaly Detection with Ensembling (SPADE)](https://openreview.net/forum?id=JwDpZSv3yz)  is a semi-supervised anomaly detection method that uses an ensemble of one class classifiers as the pseudo-labelers and supervised classifiers to achieve state of the art results especially on datasets with distribution mismatch between labeled and unlabeled samples. Provided with a min-max scaled dataset, and label values denoting unlabeled, positive, and negative data points located in BigQuery, this custom model trains and uploads TensorFlow saved model assets to a specified GCS location.
 
+*Partial matching as described in the paper is not implemented in the open-source version of SPADE*
+
 ## Assumptions
 
 - You have a Google Cloud account and are familiar with the console
@@ -62,9 +64,11 @@ The metric reported by the pipeline is model [AUC](https://developers.google.com
 
 <span style="color:yellow;background-color:lightgrey">**train_setting (string)**</span>: The 'PNU' (Positive, Negative, and Unlabeled) setting will train the supervised model using ground truth negative and positive data, as well as pseudo-labeled samples from the pseudo-labeler. The 'PU' (Positive and Unlabeled) setting will only use negative data from the pseudo-labeler along with the rest of the positive data (ground truth plus pseudo labeled) to train the supervised model. For model evaluation, we still require ground truth negative data to be in the BigQuery dataset, it just won't be used during training. Default is PNU.
 
-<span style="color:red;background-color:lightgrey">input_bigquery_table_path (string)</span>: A BigQuery table path in the format 'project.dataset.table'. If this is the only BigQuery path provided, this will be used in conjunction with the test_dataset_holdout_fraction parameter to create a train/test split.
+<span style="color:red;background-color:lightgrey">input_bigquery_table_path (string)</span>: A BigQuery table path in the format 'project.dataset.table'. If this is the only BigQuery path provided, this will be used in conjunction with the test_dataset_holdout_fraction parameter to create a train/test split. Use exactly one of BigQuery locations or GCS locations.
 
-<span style="color:red;background-color:lightgrey">output_gcs_uri  (string)</span>: Cloud Storage location to store the supervised model assets. The location should be in the form gs://bucketname/foldername. A timestamp will be added to the end of the folder so that multiple runs of this won't overwrite previous runs.
+<span style="color:red;background-color:lightgrey">data_input_gcs_uri (string)</span>: Cloud Storage location to store the input data. If this is the only Cloud Storage location provided, this will be used in conjunction with test_dataset_holdout_fraction parameter to create a train/test split. Use exactly one of BigQuery locations or GCS locations.
+
+<span style="color:red;background-color:lightgrey">output_gcs_uri  (string)</span>: Cloud Storage location to store the supervised model assets. The location should be in the form gs://bucketname/foldername. A timestamp will be added to the end of the folder so that multiple runs of this won't overwrite previous runs. Supervised model assets are always stored to GCS.
 
 <span style="color:red;background-color:lightgrey">label_col_name (string)</span>: The name of the label column in the input BigQuery table.
 
@@ -87,9 +91,21 @@ one class classifier ensemble to label a point as negative. The higher this valu
 
 <span style="color:yellow;background-color:lightgrey">test_dataset_holdout_fraction</span>: This setting is used if <span style="color:yellow;background-color:lightgrey">test_bigquery_table_path</span> is not provided. Float between 0 and 1 representing the fraction of samples to hold out as a test set. Default is 0.2, meaning 20% of the data is used for training. In the PU setting, this means that 20% of the positive labels and 100% of the negative data (Since we do not use any ground truth negative data for the supervised mode training) will be used for creating the test sets. For the PNU setting, it is just 20% of positive and negative samples, sampled uniformly at random, all other data would be used for training.
 
+<span style="color:yellow;background-color:lightgrey">data_test_gcs_uri</span>: Cloud Storage location to store the CSV data to be used for evaluating the supervised model. Note that the positive and negative label values must also be the same in this testing set. It is okay to have your test labels in that form, or use 1 for positive and 0 for negative. Use exactly one of BigQuery locations or GCS locations.
+
+<span style="color:yellow;background-color:lightgrey">upload_only</span>: Use this setting in conjunction with `output_bigquery_table_path` or `data_output_gcs_uri`. When `True`, the algorithm will just upload the pseudo labeled data to the specified table, and will skip training a supervised model. When set to `False`, the algorithm will also train a supervised model and upload it to a GCS location. Default is `False`.
+
+<span style="color:yellow;background-color:lightgrey">output_bigquery_table_path</span>: A complete BigQuery path in the form of 'project.dataset.table' to be used for uploading the pseudo labeled data. This includes features and new labels. By default, we will use the column names from the input_bigquery_table_path BigQuery table. Use exactly one of BigQuery locations or GCS locations.
+
+<span style="color:yellow;background-color:lightgrey">data_output_gcs_uri</span>: Cloud Storage location used for uploading the pseudo labeled data as CSV. This includes features and new labels. By default, we will use the column names from the data_input_gcs_uri table. Use exactly one of BigQuery locations or GCS locations.
+
 <span style="color:yellow;background-color:lightgrey">alpha (float)</span>: Sample weights for weighting the loss function, only for pseudo-labeled data from the occ ensemble. Original data that is labeled will have a weight of 1.0. By default, we use alpha = 1.0.
 
 <span style="color:yellow;background-color:lightgrey">ensemble_count</span>: Integer representing the number of one class classifiers in the ensemble used for pseudo labeling unlabeled data points. The more models in the ensemble, the less likely it is for all the models to gain consensus, and thus will reduce the amount of labeled data points. By default, we use 5 one class classifiers.
+
+<span style="color:yellow;background-color:lightgrey">n_components</span>: Integer representing the number of components to use in the one class classifier ensemble. By default, we use 1 component.
+
+<span style="color:yellow;background-color:lightgrey">covariance_type</span>: String representing the covariance type to use in the one class classifier ensemble. By default, we use 'full' covariance. Note that when there are many components, a 'full' covariance matrix may not be suitable.
 
 <span style="color:yellow;background-color:lightgrey">verbose (boolean)</span>: The amount of console logs to display during training. Use the default value of  False to show fewer messages, and True for displaying many aspects of model training and scoring. This is useful for debugging model performance.
 
@@ -152,28 +168,37 @@ echo "Built and pushed ${IMAGE_URI_ML}"
 set -x
 
 PROJECT_ID=${1:-"project_id"}
-#Args, maintain same order as runner.run and task.py.
-TRAIN_SETTING=${15:-"PNU"}
+DATETIME=$(date '+%Y%m%d_%H%M%S')
 
-TRIAL_NAME="prod_spade_credit_${TRAIN_SETTING}_${USER}"
+# Give a unique name to your training job.
+TRIAL_NAME="spade_${USER}_${DATETIME}"
 
-INPUT_BIGQUERY_TABLE_PATH=${2:-"bq_table_path"}
-OUTPUT_GCS_URI=${14:-"gs://[your-gcs-bucket]/models/model_experiment_$(date '+%Y%m%d_%H%M%S')"}
-LABEL_COL_NAME=${3:-"y"}
+#Args
+TRAIN_SETTING=${2:-"PNU"}
+
+# Use either Bigquery or GCS for input/output/test data.
+INPUT_BIGQUERY_TABLE_PATH=${3:-"${PROJECT_ID}.[bq-dataset].[bq-input-table]"}
+DATA_INPUT_GCS_URI=${4:-""}
+OUTPUT_BIGQUERY_TABLE_PATH=${5:-"${PROJECT_ID}.[bq-dataset].[bq-output-table]"}
+DATA_OUTPUT_GCS_URI=${6:-""}
+OUTPUT_GCS_URI=${7:-"gs://[gcs-bucket]/[model-folder]"}
+LABEL_COL_NAME=${8:-"y"}
 # The label column is of type float, these must match in order for array
 # filtering to work correctly.
-POSITIVE_DATA_VALUE=${4:-"1"}
-NEGATIVE_DATA_VALUE=${5:-"0"}
-UNLABELED_DATA_VALUE=${6:-"-1"}
-POSITIVE_THRESHOLD=${7:-".1"}
-NEGATIVE_THRESHOLD=${8:-"95"}
-TEST_BIGQUERY_TABLE_PATH=${16:-"table_path"}
-TEST_LABEL_COL_NAME=${17:-"y"}
-ALPHA=${10:-"1.0"}
-ENSEMBLE_COUNT=${12:-"5"}
-VERBOSE=${13:-"True"}
+POSITIVE_DATA_VALUE=${9:-"1"}
+NEGATIVE_DATA_VALUE=${10:-"0"}
+UNLABELED_DATA_VALUE=${11:-"-1"}
+POSITIVE_THRESHOLD=${12:-".1"}
+NEGATIVE_THRESHOLD=${13:-"95"}
+TEST_BIGQUERY_TABLE_PATH=${14:-"${PROJECT_ID}.[bq-dataset].[bq-test-table]"}
+DATA_TEST_GCS_URI=${15:-""}
+TEST_LABEL_COL_NAME=${16:-"y"}
+ALPHA=${17:-"1.0"}
+ENSEMBLE_COUNT=${19:-"5"}
+VERBOSE=${22:-"True"}
+UPLOAD_ONLY=${23:-"False"}
 
-PROD_IMAGE_URI="us-docker.pkg.dev/[project_id]/spade-anomaly-detection/spade:latest"
+IMAGE_URI="us-docker.pkg.dev/[project_id]/spade-anomaly-detection/spade:latest"
 
 REGION="us-central1"
 
@@ -185,21 +210,26 @@ gcloud ai custom-jobs create \
  --region="${REGION}" \
  --project="${PROJECT_ID}" \
  --display-name="${TRIAL_NAME}" \
- --worker-pool-spec="${WORKER_MACHINE}",replica-count=1,container-image-uri="${PROD_IMAGE_URI}" \
- --args=--train_setting="${TRAIN_SETTING}" \
- --args=--input_bigquery_table_path="${INPUT_BIGQUERY_TABLE_PATH}" \
- --args=--output_gcs_uri="${OUTPUT_GCS_URI}" \
- --args=--label_col_name="${LABEL_COL_NAME}" \
- --args=--positive_data_value="${POSITIVE_DATA_VALUE}" \
- --args=--negative_data_value="${NEGATIVE_DATA_VALUE}" \
- --args=--unlabeled_data_value="${UNLABELED_DATA_VALUE}" \
- --args=--positive_threshold="${POSITIVE_THRESHOLD}" \
- --args=--negative_threshold="${NEGATIVE_THRESHOLD}" \
- --args=--test_bigquery_table_path="${TEST_BIGQUERY_TABLE_PATH}" \
- --args=--test_label_col_name="${TEST_LABEL_COL_NAME}" \
- --args=--alpha="${ALPHA}" \
- --args=--ensemble_count="${ENSEMBLE_COUNT}" \
- --args=--verbose="${VERBOSE}"
+ --worker-pool-spec="${WORKER_MACHINE}",replica-count=1,container-image-uri="${IMAGE_URI}" \
+   --args=--train_setting="${TRAIN_SETTING}" \
+  --args=--input_bigquery_table_path="${INPUT_BIGQUERY_TABLE_PATH}" \
+  --args=--data_input_gcs_uri="${DATA_INPUT_GCS_URI}" \
+  --args=--output_bigquery_table_path="${OUTPUT_BIGQUERY_TABLE_PATH}" \
+  --args=--data_output_gcs_uri="${DATA_OUTPUT_GCS_URI}" \
+  --args=--output_gcs_uri="${OUTPUT_GCS_URI}" \
+  --args=--label_col_name="${LABEL_COL_NAME}" \
+  --args=--positive_data_value="${POSITIVE_DATA_VALUE}" \
+  --args=--negative_data_value="${NEGATIVE_DATA_VALUE}" \
+  --args=--unlabeled_data_value="${UNLABELED_DATA_VALUE}" \
+  --args=--positive_threshold="${POSITIVE_THRESHOLD}" \
+  --args=--negative_threshold="${NEGATIVE_THRESHOLD}" \
+  --args=--test_bigquery_table_path="${TEST_BIGQUERY_TABLE_PATH}" \
+  --args=--data_test_gcs_uri="${DATA_TEST_GCS_URI}" \
+  --args=--test_label_col_name="${TEST_LABEL_COL_NAME}" \
+  --args=--alpha="${ALPHA}" \
+  --args=--ensemble_count="${ENSEMBLE_COUNT}" \
+  --args=--upload_only="${UPLOAD_ONLY}" \
+  --args=--verbose="${VERBOSE}"
 ~~~
 
 ## Example Datasets and their Licenses

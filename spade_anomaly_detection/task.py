@@ -32,14 +32,22 @@
 See spade/scripts for examples on launching a Vertex training job and using this
 script as an entry point.
 """
+
 import logging
-from typing import Sequence
+import os
+import random
+from typing import Final, Sequence
 
 from absl import app
 from absl import flags
-
+import numpy as np
 from spade_anomaly_detection import parameters
 from spade_anomaly_detection import runner
+import tensorflow as tf
+
+
+_RANDOM_SEED: Final[int] = 42
+
 
 _TRAIN_SETTING = flags.DEFINE_enum_class(
     "train_setting",
@@ -64,6 +72,16 @@ _INPUT_BIGQUERY_TABLE_PATH = flags.DEFINE_string(
     help=(
         "BigQuery table path used for training the anomaly detection model."
         " This needs to be the format 'project.dataset.table'."
+    ),
+)
+
+_DATA_INPUT_GCS_URI = flags.DEFINE_string(
+    "data_input_gcs_uri",
+    default=None,
+    required=False,
+    help=(
+        "Cloud Storage location to store the CSV input data used for training "
+        "the anomaly detection model."
     ),
 )
 
@@ -146,7 +164,7 @@ _IGNORE_COLUMNS = flags.DEFINE_list(
     ),
 )
 
-_WHERE_STAEMENTS = flags.DEFINE_list(
+_WHERE_STATEMENTS = flags.DEFINE_list(
     "where_statements",
     default=None,
     required=False,
@@ -187,6 +205,19 @@ _TEST_DATASET_HOLDOUT_FRACTION = flags.DEFINE_float(
     ),
 )
 
+_DATA_TEST_GCS_URI = flags.DEFINE_string(
+    "data_test_gcs_uri",
+    default=None,
+    required=False,
+    help=(
+        "Cloud Storage location to store the CSV input data used for evaluating"
+        " the supervised model. Note that the positive and negative label "
+        "values must also be the same in this testing set. It is okay to have "
+        "your test labels in that form, or use 1 for positive and 0 for "
+        "negative."
+    ),
+)
+
 _OUTPUT_BIGQUERY_TABLE_PATH = flags.DEFINE_string(
     "output_bigquery_table_path",
     default=None,
@@ -196,6 +227,17 @@ _OUTPUT_BIGQUERY_TABLE_PATH = flags.DEFINE_string(
         " used for uploading the pseudo labeled data. This includes features"
         " and new labels. By default, we will use the column names from the"
         " input_bigquery_table_path BigQuery table."
+    ),
+)
+
+_DATA_OUTPUT_GCS_URI = flags.DEFINE_string(
+    "data_output_gcs_uri",
+    default=None,
+    required=False,
+    help=(
+        "Cloud Storage location to be used for uploaded the pseudo labeled data"
+        " as CSV. This includes features and new labels. By default, we will "
+        "use the column names from the data_input_gcs_uri table."
     ),
 )
 
@@ -259,6 +301,27 @@ _ENSEMBLE_COUNT = flags.DEFINE_integer(
     ),
 )
 
+_N_COMPONENTS = flags.DEFINE_integer(
+    "n_components",
+    default=1,
+    required=False,
+    help=(
+        "The number of components to use in the one class classifier ensemble. "
+        "By default, we use 1 component."
+    ),
+)
+
+_COVARIANCE_TYPE = flags.DEFINE_string(
+    "covariance_type",
+    default="full",
+    required=False,
+    help=(
+        "The covariance type to use in the one class classifier ensemble. By "
+        "default, we use 'full' covariance. Note that when there are many "
+        "components, a 'full' covariance matrix may not be suitable."
+    ),
+)
+
 _VERBOSE = flags.DEFINE_bool(
     "verbose",
     default=False,
@@ -286,13 +349,24 @@ _UPLOAD_ONLY = flags.DEFINE_bool(
 # TODO(b/247116870) Implement the rest of the input parameters.
 
 
+def _set_seeds(seed: int = _RANDOM_SEED):
+  """Sets the random seed in the relevant modules."""
+  os.environ["PYTHONHASHSEED"] = str(seed)
+  random.seed(seed)
+  np.random.seed(seed)
+  tf.random.set_seed(seed)
+
+
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError("Too many command-line arguments.")
 
+  _set_seeds(seed=_RANDOM_SEED)
+
   runner_parameters = parameters.RunnerParameters(
       train_setting=_TRAIN_SETTING.value,
       input_bigquery_table_path=_INPUT_BIGQUERY_TABLE_PATH.value,
+      data_input_gcs_uri=_DATA_INPUT_GCS_URI.value,
       output_gcs_uri=_OUTPUT_GCS_URI.value,
       label_col_name=_LABEL_COL_NAME.value,
       positive_data_value=_POSITIVE_DATA_VALUE.value,
@@ -301,17 +375,22 @@ def main(argv: Sequence[str]) -> None:
       positive_threshold=_POSITIVE_THRESHOLD.value,
       negative_threshold=_NEGATIVE_THRESHOLD.value,
       ignore_columns=_IGNORE_COLUMNS.value,
-      where_statements=_WHERE_STAEMENTS.value,
+      where_statements=_WHERE_STATEMENTS.value,
       test_bigquery_table_path=_TEST_BIGQUERY_TABLE_PATH.value,
       test_label_col_name=_TEST_LABEL_COL_NAME.value,
       test_dataset_holdout_fraction=_TEST_DATASET_HOLDOUT_FRACTION.value,
+      data_test_gcs_uri=_DATA_TEST_GCS_URI.value,
       upload_only=_UPLOAD_ONLY.value,
       output_bigquery_table_path=_OUTPUT_BIGQUERY_TABLE_PATH.value,
+      data_output_gcs_uri=_DATA_OUTPUT_GCS_URI.value,
       alpha=_ALPHA.value,
       batches_per_model=_BATCHES_PER_MODEL.value,
       max_occ_batch_size=_MAX_OCC_BATCH_SIZE.value,
       labeling_and_model_training_batch_size=_BATCH_SIZE.value,
       ensemble_count=_ENSEMBLE_COUNT.value,
+      n_components=_N_COMPONENTS.value,
+      covariance_type=_COVARIANCE_TYPE.value,
+      random_seed=_RANDOM_SEED,
       verbose=_VERBOSE.value,
   )
   runner_obj = runner.Runner(runner_parameters)

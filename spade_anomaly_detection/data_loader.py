@@ -38,7 +38,7 @@ import functools
 import os
 import pathlib
 # TODO(b/247116870): Change to collections when Vertex supports python 3.9
-from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Final, List, Mapping, Optional, Sequence, Tuple, Union
 
 from absl import logging
 from google.cloud import bigquery
@@ -46,22 +46,24 @@ from google.cloud import storage
 from google.cloud.storage import transfer_manager
 import numpy as np
 import pandas as pd
-
 from spade_anomaly_detection import parameters
 from spade_anomaly_detection.data_utils import bq_dataset
 from spade_anomaly_detection.data_utils import bq_utils
 from spade_anomaly_detection.data_utils import feature_metadata
-
 import tensorflow as tf
 
+_DATA_ROOT: Final[str] = 'spade_anomaly_detection/example_data/'
 
-_DATA_ROOT = 'third_party/py/spade_anomaly_detection/example_data/'
+WEIGHT_COLUMN_NAME: Final[str] = 'alpha'
+PSEUDOLABEL_FLAG_COLUMN_NAME: Final[str] = 'is_pseudolabel'
 
 
 def load_dataframe(
     dataset_name: str,
     label_col_index: int = -1,
-    filter_label_value: Optional[Union[str, int]] = None,
+    filter_label_value: Optional[Union[str, int, list[str], list[int]]] = None,
+    index_col: Optional[int] = 0,
+    skiprows: Optional[int] = 1,
 ) -> Sequence[Union[pd.DataFrame, pd.Series]]:
   """Loads csv data located in the ./example_data directory for unit tests.
 
@@ -71,11 +73,16 @@ def load_dataframe(
     filter_label_value: Value to filter the label column on. Could be a string
       or an integer. If there is no value specified, no filtering will be
       performed.
+    index_col: Column to use for the index. If None, the index will be the
+      default index.
+    skiprows: Number of rows to skip when reading the CSV file.
 
   Returns:
     A tuple (features, labels), both are dataframes corresponding to the
     features and labels of the dataset respectively.
   """
+  if isinstance(filter_label_value, (str, int)):
+    filter_label_value = [filter_label_value]
 
   file_path = os.path.join(_DATA_ROOT, f'{dataset_name}.csv')
 
@@ -88,7 +95,9 @@ def load_dataframe(
   ]:
     raise ValueError(f'Unknown dataset_name: {dataset_name}')
 
-  dataframe = pd.read_csv(file_path, delimiter=',', skiprows=1, index_col=0)
+  dataframe = pd.read_csv(
+      file_path, delimiter=',', skiprows=skiprows, index_col=index_col
+  )
 
   if len(dataframe.shape) != 2:
     raise ValueError(
@@ -103,7 +112,7 @@ def load_dataframe(
 
   if filter_label_value is not None:
     dataframe = dataframe[
-        dataframe.iloc[:, label_col_index] == filter_label_value
+        dataframe.iloc[:, label_col_index].isin(filter_label_value)
     ]
 
   features = dataframe.drop(dataframe.columns[label_col_index], axis=1)
@@ -117,6 +126,8 @@ def load_tf_dataset_from_csv(
     label_col_index: int = -1,
     batch_size: Optional[int] = None,
     filter_label_value: Optional[Any] = None,
+    index_col: Optional[int] = 0,
+    skiprows: Optional[int] = 1,
     return_feature_count: bool = False,
 ) -> Union[tf.data.Dataset, Tuple[tf.data.Dataset, int]]:
   """Loads a TensorFlow dataset from the ./example_data directory.
@@ -131,6 +142,9 @@ def load_tf_dataset_from_csv(
       yield one record per call instead of a batch of records.
     filter_label_value: Value to filter the label column on. Could be a string
       or an integer.
+    index_col: Column to use for the index. If None, the index will be the
+      default index.
+    skiprows: Number of rows to skip when reading the CSV file.
     return_feature_count: If True, returns a tuple of the Dataset and the number
       of features.
 
@@ -139,7 +153,11 @@ def load_tf_dataset_from_csv(
       number of features,
   """
   features, labels = load_dataframe(
-      dataset_name, label_col_index, filter_label_value
+      dataset_name,
+      label_col_index,
+      filter_label_value,
+      index_col=index_col,
+      skiprows=skiprows,
   )
 
   feature_tensors = tf.convert_to_tensor(features, dtype=tf.dtypes.float32)
@@ -329,8 +347,9 @@ class DataLoader:
       where_statements: Optional[List[str]] = None,
       ignore_columns: Optional[Sequence[str]] = None,
       batch_size: Optional[int] = None,
-      label_column_filter_value: Optional[int] = None,
+      label_column_filter_value: Optional[int | list[int]] = None,
       convert_features_to_float64: bool = False,
+      page_size: Optional[int] = None,
   ) -> tf.data.Dataset:
     """Loads a TensorFlow dataset from a BigQuery Table.
 
@@ -347,10 +366,13 @@ class DataLoader:
         dataset is not batched. In this case, when iterating through the
         dataset, it will yield one record per call instead of a batch of
         records.
-      label_column_filter_value: An integer used when filtering the label column
-        values. No value will result in all data returned from the table.
+      label_column_filter_value: An integer or list of integers used when
+        filtering the label column values. No value will result in all data
+        returned from the table.
       convert_features_to_float64: Set to True to cast the contents of the
         features columns to float64.
+      page_size: the pagination size to use when retrieving data from BigQuery.
+        A large value can result in fewer BQ calls, hence time savings.
 
     Returns:
       A TensorFlow dataset.
@@ -363,7 +385,15 @@ class DataLoader:
       where_statements = (
           list() if where_statements is None else where_statements
       )
-      where_statements.append(f'{label_col_name} = {label_column_filter_value}')
+      if isinstance(label_column_filter_value, int):
+        where_statements.append(
+            f'{label_col_name} = {label_column_filter_value}'
+        )
+      else:
+        where_statements.append(
+            f'CAST({label_col_name} AS INT64) IN '
+            f'UNNEST({label_column_filter_value})'
+        )
 
     if ignore_columns is not None:
       metadata_builder = feature_metadata.BigQueryMetadataBuilder(
@@ -374,8 +404,10 @@ class DataLoader:
       )
 
     if where_statements:
-      metadata_retrieval_options = feature_metadata.MetadataRetrievalOptions(
-          where_clauses=where_statements
+      metadata_retrieval_options = (
+          feature_metadata.MetadataRetrievalOptions.get_none(
+              where_clauses=where_statements
+          )
       )
 
     tf_dataset, metadata = bq_dataset.get_dataset_and_metadata_for_table(
@@ -385,7 +417,12 @@ class DataLoader:
         drop_remainder=True,
         metadata_options=metadata_retrieval_options,
         metadata_builder=metadata_builder,
+        page_size=page_size,
     )
+    options = tf.data.Options()
+    # Avoid a large warning output by TF Dataset.
+    options.deterministic = False
+    tf_dataset = tf_dataset.with_options(options)
 
     self.input_feature_metadata = metadata
 
@@ -657,12 +694,19 @@ class DataLoader:
       self,
       features: np.ndarray,
       labels: np.ndarray,
+      weights: Optional[np.ndarray] = None,
+      pseudolabel_flags: Optional[np.ndarray] = None,
   ) -> None:
     """Uploads the dataframe to BigQuery, create or replace table.
 
     Args:
       features: Numpy array of features.
       labels: Numpy array of labels.
+      weights: Optional numpy array of weights.
+      pseudolabel_flags: Optional numpy array of pseudolabel flags.
+
+    Raises:
+      ValueError: If the metadata has not been read yet.
     """
     if not self.input_feature_metadata:
       raise ValueError(
@@ -671,11 +715,31 @@ class DataLoader:
           'load_tf_dataset_from_bigquery() before this method '
           'is called.'
       )
-    combined_data = np.concatenate(
-        [features, labels.reshape(len(features), 1)], axis=1
-    )
+    combined_data = features
 
+    # Get the list of feature and label column names.
     column_names = list(self.input_feature_metadata.names)
+
+    # If the weights are provided, add them to the column names and to the
+    # combined data.
+    if weights is not None:
+      column_names.append(WEIGHT_COLUMN_NAME)
+      combined_data = np.concatenate(
+          [combined_data, weights.reshape(len(features), 1)], axis=1
+      )
+
+    # If the pseudolabel flags are provided, add them to the column names and
+    # to the combined data.
+    if pseudolabel_flags is not None:
+      column_names.append(PSEUDOLABEL_FLAG_COLUMN_NAME)
+      combined_data = np.concatenate(
+          [combined_data, pseudolabel_flags.reshape(len(features), 1)], axis=1
+      )
+
+    # Make sure the label column is the last column.
+    combined_data = np.concatenate(
+        [combined_data, labels.reshape(len(features), 1)], axis=1
+    )
     column_names.remove(self.runner_parameters.label_col_name)
     column_names.append(self.runner_parameters.label_col_name)
 
@@ -687,6 +751,12 @@ class DataLoader:
     complete_dataframe[self.runner_parameters.label_col_name] = (
         complete_dataframe[self.runner_parameters.label_col_name].astype('bool')
     )
+
+    # Adjust pseudolabel flag column type.
+    if pseudolabel_flags is not None:
+      complete_dataframe[PSEUDOLABEL_FLAG_COLUMN_NAME] = complete_dataframe[
+          PSEUDOLABEL_FLAG_COLUMN_NAME
+      ].astype(np.int64)
 
     with bigquery.Client(
         project=self.table_parts.project_id

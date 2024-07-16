@@ -47,8 +47,7 @@ jobs:
 
     steps:
     # Publish the package (if local `__version__` > pip version)
-    - uses: etils-actions/pypi-auto-publish@v1
+    - uses: etils-actions/pypi-auto-publish@v1.5.2
       with:
         pypi-token: ${{ secrets.PYPI_API_TOKEN }}
-        gh-token: ${{ secrets.GITHUB_TOKEN }}
         parse-changelog: true
