@@ -29,15 +29,15 @@
 
 """Tests for the one class classifier ensemble."""
 
-import numpy as np
 
+from absl.testing import parameterized
+import numpy as np
 from spade_anomaly_detection import data_loader
 from spade_anomaly_detection import occ_ensemble
-
 import tensorflow as tf
 
 
-class OccEnsembleTest(tf.test.TestCase):
+class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_ensemble_initialization_no_error(self):
     gmm_ensemble = occ_ensemble.GmmEnsemble(n_components=1, ensemble_count=10)
@@ -47,13 +47,21 @@ class OccEnsembleTest(tf.test.TestCase):
     with self.subTest(name='ObjectAttributes'):
       self.assertEqual(gmm_ensemble.ensemble_count, 10)
 
-  def test_ensemble_training_no_error(self):
+  # Params to test: n_components, ensemble_count, covariance_type.
+  @parameterized.named_parameters(
+      ('components_1_ensemble_10_full', 1, 10, 'full'),
+      ('components_3_ensemble_5_full', 1, 5, 'full'),
+      ('components_3_ensemble_5_tied', 1, 5, 'tied'),
+  )
+  def test_ensemble_training_no_error(
+      self, n_components, ensemble_count, covariance_type
+  ):
     batches_per_occ = 10
-    ensemble_count = 5
-    n_components = 1
 
     ensemble_obj = occ_ensemble.GmmEnsemble(
-        n_components=n_components, ensemble_count=ensemble_count
+        n_components=n_components,
+        ensemble_count=ensemble_count,
+        covariance_type=covariance_type,
     )
 
     tf_dataset = data_loader.load_tf_dataset_from_csv(

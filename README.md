@@ -103,6 +103,10 @@ one class classifier ensemble to label a point as negative. The higher this valu
 
 <span style="color:yellow;background-color:lightgrey">ensemble_count</span>: Integer representing the number of one class classifiers in the ensemble used for pseudo labeling unlabeled data points. The more models in the ensemble, the less likely it is for all the models to gain consensus, and thus will reduce the amount of labeled data points. By default, we use 5 one class classifiers.
 
+<span style="color:yellow;background-color:lightgrey">n_components</span>: Integer representing the number of components to use in the one class classifier ensemble. By default, we use 1 component.
+
+<span style="color:yellow;background-color:lightgrey">covariance_type</span>: String representing the covariance type to use in the one class classifier ensemble. By default, we use 'full' covariance. Note that when there are many components, a 'full' covariance matrix may not be suitable.
+
 <span style="color:yellow;background-color:lightgrey">verbose (boolean)</span>: The amount of console logs to display during training. Use the default value of  False to show fewer messages, and True for displaying many aspects of model training and scoring. This is useful for debugging model performance.
 
 ## Training Job Arguments

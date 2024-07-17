@@ -24,6 +24,10 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 ## [Unreleased]
 
+## [0.3.2] - 2024-07-16
+
+* Exposes the `n_component` and `covariance_type` parameters of the one-class classifier.
+
 ## [0.3.1] - 2024-07-13
 
 * Now writes out the pseudolabel weights and a flag that indicates whether a sample has a ground truth label (0) or a pseudolabel (1).
@@ -49,7 +53,8 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 * Initial release
 
-[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/google-research/spade_anomaly_detection/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/google-research/spade_anomaly_detection/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/google-research/spade_anomaly_detection/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/google-research/spade_anomaly_detection/compare/v0.2.1...v0.2.2
