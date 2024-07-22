@@ -64,12 +64,16 @@ class Model(abc.ABC):
       save_location: String denoting a Google Cloud Storage location, or local
         disk path. Note that local assets will be deleted when the VM running
         this container is shutdown at the end of the training job.
+
+    Raises:
+      ValueError: If the supervised model was not initialized.
     """
-    if self.supervised_model is not None:
-      self.supervised_model.save(save_location)
-      logging.info('Saved model assets to %s', save_location)
+    if self.supervised_model is None:
+      raise ValueError('Supervised model was not initialized.')
     else:
-      logging.warning('No model to save.')
+      self.supervised_model.save(save_location)  # pytype: disable=attribute-error
+
+      logging.info('Saved model assets to %s', save_location)
 
 
 @dataclasses.dataclass
@@ -133,7 +137,7 @@ class RandomForestModel(Model):
           **dataclasses.asdict(self.supervised_parameters)
       )
       self.supervised_model.compile(
-          metrics=[
+          weighted_metrics=[
               tf.keras.metrics.AUC(name='Supervised_Model_AUC'),
               tf.keras.metrics.Precision(
                   thresholds=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
