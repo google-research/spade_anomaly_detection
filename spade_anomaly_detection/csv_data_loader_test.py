@@ -41,7 +41,6 @@ import pandas as pd
 from spade_anomaly_detection import csv_data_loader
 from spade_anomaly_detection import parameters
 import tensorflow as tf
-
 import tensorflow_datasets as tfds
 
 import pytest
@@ -110,19 +109,38 @@ class CsvDataUtilsTest(tf.test.TestCase, parameterized.TestCase):
 
   # Params to test: gcs_uri.
   @parameterized.named_parameters(
-      ("single_file", "gs://bucket/dir/file.csv", "bucket", "dir/file.csv/"),
-      ("folder_no_slash", "gs://bucket/dir", "bucket", "dir/"),
-      ("folder_with_slash", "gs://bucket/dir/", "bucket", "dir/"),
+      (
+          "single_file",
+          "gs://bucket/dir/file.csv",
+          "bucket",
+          "dir/file.csv/",
+          "",
+      ),
+      ("folder_no_slash", "gs://bucket/dir", "bucket", "dir/", ""),
+      ("folder_with_slash", "gs://bucket/dir/", "bucket", "dir/", ""),
+      (
+          "folder_with_wildcard",
+          "gs://bucket/dir/file*.csv",
+          "bucket",
+          "dir/file",
+          ".csv",
+      ),
   )
-  def test_parse_gcs_uri_returns_bucket_name_and_prefix(
-      self, gcs_uri, expected_bucket, expected_prefix
+  def test_parse_gcs_uri_returns_bucket_name_prefix_and_suffix(
+      self, gcs_uri, expected_bucket, expected_prefix, expected_suffix
   ):
-    bucket_name, prefix = csv_data_loader._parse_gcs_uri(gcs_uri=gcs_uri)
+    bucket_name, prefix, suffix = csv_data_loader._parse_gcs_uri(
+        gcs_uri=gcs_uri
+    )
     self.assertEqual(bucket_name, expected_bucket)
     self.assertEqual(prefix, expected_prefix)
+    self.assertEqual(suffix, expected_suffix)
 
-  def test_parse_gcs_uri_incorrect_uri_raises(self):
-    gcs_uri = "bucket/dir/"
+  @parameterized.named_parameters(
+      ("incorrect_folder", "bucket/dir/"),
+      ("too_many_wildcards", "gs://bucket/*/file*.csv")
+  )
+  def test_parse_gcs_uri_incorrect_uri_raises(self, gcs_uri):
     with self.assertRaises(ValueError):
       _, _ = csv_data_loader._parse_gcs_uri(gcs_uri=gcs_uri)
 
@@ -259,7 +277,7 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
     tmp_dir = self.create_tempdir("tmp")
     input_path = os.path.join(tmp_dir.full_path, self.dir)
     tf.io.gfile.makedirs(input_path)
-    mock_parse_gcs_uri.return_value = ("doesnt_matter", input_path)
+    mock_parse_gcs_uri.return_value = ("doesnt_matter", input_path, "")
     mock_file_reader.return_value = [
         os.path.join(tmp_dir.full_path, self.csv_file1),
         os.path.join(tmp_dir.full_path, self.csv_file2),
@@ -410,7 +428,7 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         np.repeat([0], len(features2))
         .reshape(len(features2), 1)
         .astype(np.int64)
-    )    # Upload batch 1.
+    )  # Upload batch 1.
     data_loader.upload_dataframe_to_gcs(
         batch=1,
         features=features1,

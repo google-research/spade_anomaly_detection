@@ -94,14 +94,14 @@ def _list_files(
   return filenames
 
 
-def _parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
+def _parse_gcs_uri(gcs_uri: str) -> tuple[str, str, str]:
   """Parses a GCS URI into bucket name, prefix and suffix.
 
   Args:
     gcs_uri: GCS URI to parse.
 
   Returns:
-    Bucket name and prefix.
+    Bucket name, prefix and suffix.
 
   Raises:
     ValueError: If the GCS URI is not valid.
@@ -109,12 +109,18 @@ def _parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
   gcs_uri_prefix = 'gs://'
   if not gcs_uri.startswith(gcs_uri_prefix):
     raise ValueError(f'GCS URI {gcs_uri} does not start with "gs://".')
-  # Paths must be to folders, not files.
-  gcs_uri = f'{gcs_uri}/' if not gcs_uri.endswith('/') else gcs_uri
   gcs_uri = gcs_uri.removeprefix(gcs_uri_prefix)
   bucket_name = gcs_uri.split('/')[0]
   rest = gcs_uri.removeprefix(f'{bucket_name}/')
-  return bucket_name, rest
+  split = rest.split('*')
+  if len(split) == 1:
+    # Paths must be to folders, not files.
+    rest = f'{rest}/' if not rest.endswith('/') else rest
+    return bucket_name, rest, ''
+  elif len(split) == 2:
+    return bucket_name, split[0], split[1]
+  else:
+    raise ValueError(f"GCS URI {gcs_uri} has more than one wildcard ('*').")
 
 
 @dataclasses.dataclass
@@ -218,6 +224,7 @@ class CsvDataLoader:
       self,
       bucket_name: str,
       location_prefix: str,
+      location_suffix: str,
       label_column_name: str,
   ) -> 'InputFilesMetadata':
     """Gets information about the CSVs containing the input data.
@@ -226,6 +233,7 @@ class CsvDataLoader:
       bucket_name: Name of the GCS bucket where the CSV files are located.
       location_prefix: The prefix of location of the CSV files, excluding any
         trailing unique identifiers.
+      location_suffix: The suffix of location of the CSV files (e.g. '.csv').
       label_column_name: The name of the label column.
 
     Returns:
@@ -233,7 +241,9 @@ class CsvDataLoader:
     """
     # Get the names of the CSV files containing the input data.
     csv_filenames = _list_files(
-        bucket_name=bucket_name, input_blob_prefix=location_prefix
+        bucket_name=bucket_name,
+        input_blob_prefix=location_prefix,
+        input_blob_suffix=location_suffix,
     )
     logging.info(
         'Collecting metadata for %d files at %s',
@@ -316,12 +326,13 @@ class CsvDataLoader:
     Returns:
       A tf.data.Dataset.
     """
-    bucket, prefix = _parse_gcs_uri(input_path)
+    bucket, prefix, suffix = _parse_gcs_uri(input_path)
     # Since we are reading a new set of CSV files, we need to get the metadata
     # again.
     self._last_read_metadata = self.get_inputs_metadata(
         bucket_name=bucket,
         location_prefix=prefix,
+        location_suffix=suffix,
         label_column_name=label_col_name,
     )
     logging.info('Last read metadata: %s', self._last_read_metadata)
