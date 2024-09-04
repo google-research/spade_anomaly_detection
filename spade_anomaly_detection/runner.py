@@ -293,7 +293,7 @@ class Runner:
     logging.info('Batch size for OCC ensemble: %s', batch_size)
 
     if self.data_format == DataFormat.BIGQUERY:
-      logging.info('Loading training data from BigQuery.')
+      logging.info('Loading GMM training data from BigQuery.')
       self.input_data_loader = cast(
           data_loader.DataLoader, self.input_data_loader
       )
@@ -310,7 +310,7 @@ class Runner:
           ],
       )
     else:
-      logging.info('Loading training data from CSV.')
+      logging.info('Loading GMM training data from CSV.')
       self.input_data_loader = cast(
           csv_data_loader.CsvDataLoader, self.input_data_loader
       )
@@ -348,7 +348,7 @@ class Runner:
       weights: Weights corresponding to pseudo labels - this is the alpha
         parameter.
     """
-    updated_label_counts = pd.DataFrame(labels).value_counts()
+    updated_label_counts = pd.DataFrame(labels).value_counts().reset_index()
     logging.info('Updated label counts %s', updated_label_counts)
 
     if self.test_x is not None and self.test_y is not None:

@@ -387,7 +387,8 @@ class RunnerBQTest(tf.test.TestCase):
       )
     with self.subTest(name='LabelCountLogs'):
       self._assert_regex_in(
-          training_logs.output, r'Updated label counts 0    90\n1    10\n'
+          training_logs.output,
+          r'Updated label counts    0  count\n0  0     90\n1  1     10',
       )
     with self.subTest(name='TrainFeatureShapeLogs'):
       self._assert_regex_in(
