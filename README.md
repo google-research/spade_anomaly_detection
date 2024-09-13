@@ -2,6 +2,10 @@
 
 [![Unittests](https://github.com/google-research/spade_anomaly_detection/actions/workflows/pytest_and_autopublish.yml/badge.svg)](https://github.com/google-research/spade_anomaly_detection/actions/workflows/pytest_and_autopublish.yml)
 [![PyPI version](https://badge.fury.io/py/spade_anomaly_detection.svg)](https://badge.fury.io/py/spade_anomaly_detection)
+[![arXiv](https://img.shields.io/badge/arXiv-2212.00173-b31b1b.svg)](https://arxiv.org/abs/2212.00173)
+[![DOI](https://zenodo.org/badge/DOI/10.48550/254125212.svg)](https://doi.org/10.48550/arXiv.2212.00173)
+![GitHub search hit counter](https://img.shields.io/github/search/google-research/spade_anomaly_detection/Anomaly%20Detection)
+[![X (formerly Twitter) URL](https://img.shields.io/twitter/url?url=https%3A%2F%2Fx.com%2Fgoogleoss%2Fstatus%2F1796214367807066575%3F)](https://x.com/googleoss/status/1796214367807066575)
 
 *This is not an officially supported Google product.*
 
@@ -9,6 +13,8 @@
 **TMLR Paper**: "SPADE: Semi-supervised Anomaly Detection under Distribution Mismatch", Jinsung Yoon and Kihyuk Sohn and Chun-Liang Li and Sercan O Arik and Tomas Pfister, *Transactions on Machine Learning Research*, ISSN:2835-8856, 2023, [link](https://openreview.net/forum?id=JwDpZSv3yz).
 
 **Google Research Blog Post**: [Link](https://ai.googleblog.com/2023/02/unsupervised-and-semi-supervised.html)
+
+**Google Open Source Blog Post**: [Link](https://opensource.googleblog.com/2024/05/semi-supervised-anomaly-detection-under-distribution-mismatch.html)
 
 
 ## Introduction
