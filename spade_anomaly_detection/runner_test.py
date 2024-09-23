@@ -776,7 +776,7 @@ class RunnerBQTest(tf.test.TestCase):
     ):
       runner_object.evaluate_model()
 
-  def test_supervised_model_not_instantiated_throw_error(self):
+  def test_upload_only_true_throw_error(self):
     self.runner_parameters.upload_only = True
     self.runner_parameters.output_bigquery_table_path = (
         'project.dataset.output_table'
@@ -785,7 +785,7 @@ class RunnerBQTest(tf.test.TestCase):
     runner_object.run()
 
     with self.assertRaisesRegex(
-        ValueError, r'Evaluate called without a trained supervised model'
+        ValueError, r'There is no test set to evaluate on'
     ):
       runner_object.evaluate_model()
 
