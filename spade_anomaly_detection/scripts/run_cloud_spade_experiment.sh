@@ -43,29 +43,30 @@ UNLABELED_DATA_VALUE=${11:-"-1"}
 POSITIVE_THRESHOLD=${12:-".1"}
 NEGATIVE_THRESHOLD=${13:-"95"}
 TEST_BIGQUERY_TABLE_PATH=${14:-"${PROJECT_ID}.[bq-dataset].[bq-test-table]"}
-DATA_TEST_GCS_URI=${15:-""}
-TEST_LABEL_COL_NAME=${16:-"y"}
-ALPHA=${17:-"1.0"}
-BATCHES_PER_MODEL=${18:-"1"}
-ENSEMBLE_COUNT=${19:-"5"}
-N_COMPONENTS=${20:-"1"}
-COVARIANCE_TYPE=${21:-"full"}
-MAX_OCC_BATCH_SIZE=${22:-"50000"}
-LABELING_AND_MODEL_TRAINING_BATCH_SIZE=${23:-"100000"}
-VERBOSE=${24:-"True"}
-UPLOAD_ONLY=${25:-"False"}
+TEST_DATASET_HOLDOUT_FRACTION=${15:-"0"}
+DATA_TEST_GCS_URI=${16:-""}
+TEST_LABEL_COL_NAME=${17:-"y"}
+ALPHA=${18:-"1.0"}
+BATCHES_PER_MODEL=${19:-"1"}
+ENSEMBLE_COUNT=${20:-"5"}
+N_COMPONENTS=${21:-"1"}
+COVARIANCE_TYPE=${22:-"full"}
+MAX_OCC_BATCH_SIZE=${23:-"50000"}
+LABELING_AND_MODEL_TRAINING_BATCH_SIZE=${24:-"100000"}
+VERBOSE=${25:-"True"}
+UPLOAD_ONLY=${26:-"False"}
 
 # Give a unique name to your training job.
 TRIAL_NAME="spade_${USER}_${DATETIME}"
 
 # Image name and location
 IMAGE_NAME="spade"
-IMAGE_TAG=${26:-"latest-oss"}
+IMAGE_TAG=${27:-"latest-oss"}
 # Project image (use this for testing)
 IMAGE_URI="us-docker.pkg.dev/${PROJECT_ID}/spade/${IMAGE_NAME}:${IMAGE_TAG}"
 echo "IMAGE_URI = ${IMAGE_URI}"
 
-BUILD=${27:-"TRUE"}
+BUILD=${28:-"TRUE"}
 
 if [[ "${BUILD}" == "TRUE" ]]; then
   /bin/bash ./scripts/build_and_push_image.sh "${IMAGE_TAG}" "${IMAGE_NAME}" "${PROJECT_ID}" || exit
@@ -94,6 +95,7 @@ gcloud ai custom-jobs create \
   --args=--positive_threshold="${POSITIVE_THRESHOLD}" \
   --args=--negative_threshold="${NEGATIVE_THRESHOLD}" \
   --args=--test_bigquery_table_path="${TEST_BIGQUERY_TABLE_PATH}" \
+  --args=--test_dataset_holdout_fraction="${TEST_DATASET_HOLDOUT_FRACTION}" \
   --args=--data_test_gcs_uri="${DATA_TEST_GCS_URI}" \
   --args=--test_label_col_name="${TEST_LABEL_COL_NAME}" \
   --args=--alpha="${ALPHA}" \
