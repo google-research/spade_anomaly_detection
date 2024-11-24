@@ -424,14 +424,20 @@ class Runner:
     needed. Throw errors when an essential parameter is missing or out of a
     required range.
     """
-    if self.runner_parameters.test_dataset_holdout_fraction > 1:
+    if (
+        self.runner_parameters.test_dataset_holdout_fraction
+        and self.runner_parameters.test_dataset_holdout_fraction > 1
+    ):
       raise ValueError(
           'Can not use more than 100% of the data for the test '
           'set:'
           f' test_dataset_holdout_fraction={self.runner_parameters.test_dataset_holdout_fraction}'
       )
 
-    if self.runner_parameters.test_dataset_holdout_fraction > 0.5:
+    if (
+        self.runner_parameters.test_dataset_holdout_fraction
+        and self.runner_parameters.test_dataset_holdout_fraction > 0.5
+    ):
       logging.warning(
           (
               'Using more than 50%% of the data for a test set, this can lead'
@@ -440,9 +446,13 @@ class Runner:
           ),
           self.runner_parameters.test_dataset_holdout_fraction,
       )
-    if self.runner_parameters.test_dataset_holdout_fraction > 0 and (
-        self.runner_parameters.test_bigquery_table_path
-        or self.runner_parameters.data_test_gcs_uri
+    if (
+        self.runner_parameters.test_dataset_holdout_fraction
+        and self.runner_parameters.test_dataset_holdout_fraction > 0
+        and (
+            self.runner_parameters.test_bigquery_table_path
+            or self.runner_parameters.data_test_gcs_uri
+        )
     ):
       logging.warning(
           'Only a test holdout fraction and a single input source '
@@ -475,6 +485,14 @@ class Runner:
           'output_bigquery_table_path or data_output_gcs_uri needs to be '
           'specified in upload_only mode.'
       )
+
+    if not self.runner_parameters.test_dataset_holdout_fraction and (
+        self.runner_parameters.test_bigquery_table_path
+        or self.runner_parameters.data_test_gcs_uri
+    ):
+      # Set the test holdout fraction to 0 when the test table is specified, so
+      # that there are no errors during train-test split.
+      self.runner_parameters.test_dataset_holdout_fraction = 0
 
   def _get_test_data(self) -> tf.data.Dataset:
     """Gets the test data from the test table or from the test CSVs."""
@@ -518,13 +536,11 @@ class Runner:
           ],
           exclude_label_value=True,
       )
+      test_label_counts = self.test_data_loader.label_counts
+      logging.info('Test label counts: %s', test_label_counts)
       test_dataset_size = (
-          self.test_data_loader.label_counts[
-              self.runner_parameters.positive_data_value
-          ]
-          + self.test_data_loader.label_counts[
-              self.runner_parameters.negative_data_value
-          ]
+          test_label_counts[self.runner_parameters.positive_data_value]
+          + test_label_counts[self.runner_parameters.negative_data_value]
       )
       test_tf_dataset = test_tf_dataset.batch(
           tf.cast(test_dataset_size, tf.int64)
@@ -718,12 +734,13 @@ class Runner:
           input_path=self.runner_parameters.data_input_gcs_uri,
           label_col_name=self.runner_parameters.label_col_name,
           batch_size=1,
-          label_column_filter_value=[],
       )
+      train_label_counts = self.input_data_loader.label_counts
       # TODO(sinharaj): This is not ideal, we should not need to read the files
       # again. Find a way to get the label counts without reading the files.
       # Assumes that data loader has already been used to read the input table.
-      total_record_count = sum(self.input_data_loader.label_counts.values())
+      total_record_count = sum(train_label_counts.values())
+      logging.info('Label counts before training: %s', train_label_counts)
 
     logging.info('Total record count: %s', total_record_count)
     unlabeled_record_count = self._get_record_count_based_on_labels(

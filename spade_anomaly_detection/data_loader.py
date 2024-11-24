@@ -90,8 +90,10 @@ def load_dataframe(
       'thyroid_labeled',
       'covertype_pu_labeled',
       'drug_train_pu_labeled',
-      'covertype_pnu_10000',
       'covertype_pnu_100000',
+      'covertype_pnu_train',
+      'covertype_pu_train',
+      'covertype_test',
   ]:
     raise ValueError(f'Unknown dataset_name: {dataset_name}')
 
