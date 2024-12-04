@@ -62,6 +62,7 @@ class DataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         label_col_name='label',
         positive_data_value=5,
         negative_data_value=3,
+        labels_are_strings=False,
         unlabeled_data_value=-100,
         positive_threshold=5,
         negative_threshold=95,

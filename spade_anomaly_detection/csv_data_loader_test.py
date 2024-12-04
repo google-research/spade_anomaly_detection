@@ -35,6 +35,8 @@ import os
 from typing import Set, Tuple
 from unittest import mock
 
+from absl import flags
+
 from absl.testing import parameterized
 import numpy as np
 import pandas as pd
@@ -44,14 +46,18 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 
 import pytest
+# Required for `self.create_tempdir` to work.
+if not flags.FLAGS.is_parsed():
+  flags.FLAGS.mark_as_parsed()
 
 # Test Config.
 _NUMBER_OF_DECIMALS_TO_ROUND = 2
 
 
+# pylint: disable=one-element-tuple,g-one-element-tuple
 def _dataset_to_set_of_nested_tuples(
     ds: tf.data.Dataset,
-) -> Set[Tuple[Tuple[float, ...], Tuple[float]]]:  # pylint: disable=g-one-element-tuple
+) -> Set[Tuple[Tuple[float, ...], Tuple[float]]]:
   """Helper to convert a dataset to a tuple of tuples of tuples for tests."""
   ds_list = list(ds.as_numpy_iterator())
   new_ds_list = []
@@ -75,6 +81,9 @@ def _dataset_to_set_of_nested_tuples(
     new_elem = (new_elem_0, new_elem_1)
     new_ds_list.append(new_elem)
   return set(new_ds_list)
+
+
+# pylint: enable=one-element-tuple,g-one-element-tuple
 
 
 @dataclasses.dataclass(frozen=True)
@@ -102,7 +111,13 @@ class CsvDataUtilsTest(tf.test.TestCase, parameterized.TestCase):
     self.storage_client_mock.return_value.bucket.return_value = self.bucket_mock
 
     self.header = ["x1", "x2", "y"]
-    self.data1 = [[0.6, 0.2, -1], [0.1, 0.8, 0], [0.6, 0.9, 1]]
+    self.data1 = [
+        [0.6, 0.2, "-1"],
+        [0.1, 0.8, "0"],
+        [0.6, 0.9, "1"],
+        [0.6, 0.7, ""],
+        [0.6, 0.3, None],
+    ]
     self.data1_df = pd.DataFrame(data=self.data1, columns=self.header)
     self.csv_file1 = "/dir1/data1.csv"
     self.csv_file1_content = self.data1_df.to_csv(header=True, index=False)
@@ -138,7 +153,7 @@ class CsvDataUtilsTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.named_parameters(
       ("incorrect_folder", "bucket/dir/"),
-      ("too_many_wildcards", "gs://bucket/*/file*.csv")
+      ("too_many_wildcards", "gs://bucket/*/file*.csv"),
   )
   def test_parse_gcs_uri_incorrect_uri_raises(self, gcs_uri):
     with self.assertRaises(ValueError):
@@ -184,7 +199,7 @@ class CsvDataUtilsTest(tf.test.TestCase, parameterized.TestCase):
         header="x1,x2,y",
         label_column_name="y",
         column_names_dict=collections.OrderedDict(
-            [("x1", "FLOAT64"), ("x2", "FLOAT64"), ("y", "INT64")]
+            [("x1", "FLOAT64"), ("x2", "FLOAT64"), ("y", "-1")]
         ),
         num_features=2,
     )
@@ -197,41 +212,75 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
     super().setUp()
     self.header = ["x1", "x2", "y"]
     self.dir = "dir1/"
-    self.data1 = [[0.6, 0.2, -1], [0.1, 0.8, 0], [0.6, 0.9, 1]]
+    self.data1 = [
+        [0.6, 0.2, "-1"],
+        [0.1, 0.8, "0"],
+        [0.6, 0.9, "1"],
+        [0.6, 0.7, ""],
+    ]
     self.data1_df = pd.DataFrame(data=self.data1, columns=self.header)
     self.csv_file1 = f"{self.dir}data1.csv"
     self.csv_file1_content = self.data1_df.to_csv(header=True, index=False)
-    self.data2 = [[0.6, 0.7, 1], [0.6, 0.5, 0], [0.6, 0.9, 1], [0.6, 0.2, 1]]
+    self.data2 = [
+        [0.6, 0.7, "1"],
+        [0.6, 0.3, "0"],
+        [0.6, 0.4, ""],
+        [0.6, 0.9, "1"],
+        [0.6, 0.2, "1"],
+    ]
     self.data2_df = pd.DataFrame(data=self.data2, columns=self.header)
     self.csv_file2 = f"{self.dir}data2.csv"
     self.csv_file2_content = self.data2_df.to_csv(header=True, index=False)
     self.data_df = pd.concat([self.data1_df, self.data2_df])
-    self.data_df = self.data_df.astype({"y": "bool"})
+    # self.data_df = self.data_df.astype({"y": "str"})
+
+  def test_get_label_remap_table(self):
+    label_mapping = {"-1": -1, "0": 0, "1": 1, "": -1}
+    remap_table = csv_data_loader.CsvDataLoader._get_label_remap_table(
+        label_mapping
+    )
+
+    with self.subTest(msg="check_size"):
+      # 3 original labels and 1 label for "".
+      self.assertEqual(remap_table.size(), 3 + 1)
+
+    with self.subTest(msg="check_contents"):
+      remap_keys, remap_values = remap_table.export()
+      self.assertAllInSet(remap_keys, {b"-1", b"0", b"1", b""})
+      self.assertAllInSet(remap_values, {-1, 0, 1})
 
   @parameterized.named_parameters(
       dict(
-          testcase_name="no_label_value_no_exclude",
+          testcase_name="no_string_label_value_no_exclude",
           label_column_filter_value=None,
           exclude_label_value=False,
-          inputs=[([0.6, 0.2], [-1]), ([0.1, 0.8], [0]), ([0.6, 0.9], [1])],
+          inputs=[
+              ([0.6, 0.2], ["-1"]),
+              ([0.1, 0.8], ["0"]),
+              ([0.6, 0.9], ["1"]),
+          ],
           expected=[True, True, True],
       ),
       dict(
-          testcase_name="positive_label_value_no_exclude",
+          testcase_name="positive_string_label_value_no_exclude",
           label_column_filter_value=1,
           exclude_label_value=False,
-          inputs=[([0.6, 0.2], [-1]), ([0.1, 0.8], [0]), ([0.6, 0.9], [1])],
+          inputs=[
+              ([0.6, 0.2], ["-1"]),
+              ([0.1, 0.8], ["0"]),
+              ([0.6, 0.9], ["1"]),
+          ],
           expected=[False, False, True],
       ),
       dict(
-          testcase_name="positive_label_value_exclude",
+          testcase_name="positive_int_label_value_exclude",
           label_column_filter_value=1,
           exclude_label_value=True,
           inputs=[([0.6, 0.2], [-1]), ([0.1, 0.8], [0]), ([0.6, 0.9], [1])],
           expected=[True, True, False],
       ),
       dict(
-          testcase_name="pos_and_0_label_value_no_exclude",
+          testcase_name="pos_and_0__int_label_value_no_exclude",
           label_column_filter_value=[0, 1],
           exclude_label_value=False,
           inputs=[([0.6, 0.2], [-1]), ([0.1, 0.8], [0]), ([0.6, 0.9], [1])],
@@ -241,22 +290,7 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
   def test_get_filter_by_label_value_func(
       self, label_column_filter_value, exclude_label_value, inputs, expected
   ):
-    runner_parameters = parameters.RunnerParameters(
-        train_setting="PNU",
-        input_bigquery_table_path=None,
-        data_input_gcs_uri="gs://bucket/input_path",
-        output_gcs_uri="gs://bucket/output_path",
-        label_col_name="y",
-        positive_data_value=1,
-        negative_data_value=0,
-        unlabeled_data_value=-1,
-        positive_threshold=5,
-        negative_threshold=95,
-    )
-    instance = csv_data_loader.CsvDataLoader(
-        runner_parameters=runner_parameters
-    )
-    filter_func = instance._get_filter_by_label_value_func(
+    filter_func = csv_data_loader.CsvDataLoader._get_filter_by_label_value_func(
         label_column_filter_value=label_column_filter_value,
         exclude_label_value=exclude_label_value,
     )
@@ -265,13 +299,75 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         got = filter_func(input_f, input_l)
         self.assertEqual(keep, got)
 
+  def test_counts_by_label_returns_expected_counts(self):
+    dataset = tf.data.Dataset.from_tensor_slices((
+        tf.constant(
+            [
+                [0.6, 0.2],
+                [0.1, 0.8],
+                [0.6, 0.9],
+                [0.6, 0.7],
+                [0.6, 0.5],
+                [0.6, 0.9],
+                [0.6, 0.2],
+            ],
+            dtype=tf.float64,
+        ),
+        tf.constant([[-1], [0], [1], [1], [0], [1], [1]], dtype=tf.int64),
+    ))
+    data_loader = csv_data_loader.CsvDataLoader(
+        runner_parameters=parameters.RunnerParameters(
+            train_setting="PNU",
+            input_bigquery_table_path=None,
+            data_input_gcs_uri="gs://bucket/input_path",
+            output_gcs_uri="gs://bucket/output_path",
+            label_col_name="y",
+            positive_data_value="1",
+            negative_data_value="0",
+            unlabeled_data_value="-1",
+            labels_are_strings=True,
+            positive_threshold=5,
+            negative_threshold=95,
+            verbose=True,
+        )
+    )
+    counts = data_loader.counts_by_label(dataset)
+    expected_counts = {
+        -1: 1,
+        0: 2,
+        1: 4,
+    }
+    self.assertDictEqual(counts, expected_counts)
+
   # Test the creation of a Dataset from CSV files. Only tests batch_size=1.
-  @pytest.mark.skip(reason="create_tempdir is broken in pytest")
+  @parameterized.named_parameters(
+      (
+          "labels_are_strings",
+          "1",
+          "0",
+          "-1",
+          True,
+      ),
+      (
+          "labels_are_ints",
+          1,
+          0,
+          -1,
+          False,
+      ),
+  )
   @mock.patch.object(csv_data_loader, "_list_files", autospec=True)
   @mock.patch.object(csv_data_loader, "_parse_gcs_uri", autospec=True)
   @mock.patch.object(tf.io.gfile.GFile, "readline", autospec=True)
   def test_load_tf_dataset_from_csv_returns_expected_dataset(
-      self, mock_readline, mock_parse_gcs_uri, mock_file_reader
+      self,
+      positive_data_value,
+      negative_data_value,
+      unlabeled_data_value,
+      labels_are_strings,
+      mock_readline,
+      mock_parse_gcs_uri,
+      mock_file_reader,
   ):
     mock_readline.return_value = ",".join(self.header)
     tmp_dir = self.create_tempdir("tmp")
@@ -301,9 +397,10 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         data_input_gcs_uri=input_path,
         output_gcs_uri=f"{input_path}/output",
         label_col_name="y",
-        positive_data_value=1,
-        negative_data_value=0,
-        unlabeled_data_value=-1,
+        positive_data_value=positive_data_value,
+        negative_data_value=negative_data_value,
+        unlabeled_data_value=unlabeled_data_value,
+        labels_are_strings=labels_are_strings,
         positive_threshold=5,
         negative_threshold=95,
         verbose=True,
@@ -320,21 +417,31 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         exclude_label_value=False,
     )
 
-    expected_dataset = tf.data.Dataset.from_tensor_slices((
-        tf.constant(
-            [
-                [0.6, 0.2],
-                [0.1, 0.8],
-                [0.6, 0.9],
-                [0.6, 0.7],
-                [0.6, 0.5],
-                [0.6, 0.9],
-                [0.6, 0.2],
-            ],
-            dtype=tf.float64,
+    # [0.6, 0.2, "-1"], [0.1, 0.8, "0"], [0.6, 0.9, "1"], [0.6, 0.7, ""]
+    # [0.6, 0.7, "1"], [0.6, 0.3, "0"], [0.6, 0.4, ""], [0.6, 0.9, "1"],
+    # [0.6, 0.2, "1"]]
+
+    expected_dataset = tf.data.Dataset.from_tensor_slices(
+        (
+            tf.constant(
+                [
+                    [0.6, 0.2],
+                    [0.1, 0.8],
+                    [0.6, 0.9],
+                    [0.6, 0.7],  # blank label.
+                    [0.6, 0.7],
+                    [0.6, 0.3],
+                    [0.6, 0.4],  # blank label.
+                    [0.6, 0.9],
+                    [0.6, 0.2],
+                ],
+                dtype=tf.float64,
+            ),
+            tf.constant(
+                [[-1], [0], [1], [-1], [1], [0], [-1], [1], [1]], dtype=tf.int64
+            ),
         ),
-        tf.constant([[-1], [0], [1], [1], [0], [1], [1]], dtype=tf.float64),
-    ))
+    )
 
     expected_element_spec = (
         tf.TensorSpec(shape=(None, None), dtype=tf.float64),  # features
@@ -343,10 +450,11 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest(msg="check_spec_equal"):
       self.assertTupleEqual(dataset.element_spec, expected_element_spec)
 
+    convert_str_to_int = csv_data_loader.CsvDataLoader.convert_str_to_int
     expected_counts = {
-        -1: 1,
-        0: 2,
-        1: 4,
+        convert_str_to_int(unlabeled_data_value): 3,
+        convert_str_to_int(negative_data_value): 2,
+        convert_str_to_int(positive_data_value): 4,
     }
     with self.subTest(msg="check_dataset_class_counts"):
       counts = data_loader.counts_by_label(dataset)
@@ -366,8 +474,17 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
           _dataset_to_set_of_nested_tuples(expected_dataset),
       )
 
-  @pytest.mark.skip(reason="create_tempdir is broken in pytest")
-  def test_upload_dataframe_to_gcs(self):
+  @parameterized.named_parameters(
+      ("string_labels", "1", "0", "-1", "STRING"),
+      ("int_labels", 1, 0, -1, "INT64"),
+  )
+  def test_upload_dataframe_to_gcs(
+      self,
+      positive_data_value,
+      negative_data_value,
+      unlabeled_data_value,
+      label_dtype,
+  ):
     tmp_dir = self.create_tempdir("tmp")
     output_dir = os.path.join(tmp_dir.full_path, self.dir, "output_path")
     runner_parameters = parameters.RunnerParameters(
@@ -376,9 +493,10 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         data_input_gcs_uri="gs://bucket/input_path",
         output_gcs_uri="gs://bucket/model_path",
         label_col_name="y",
-        positive_data_value=1,
-        negative_data_value=0,
-        unlabeled_data_value=-1,
+        positive_data_value=positive_data_value,
+        negative_data_value=negative_data_value,
+        unlabeled_data_value=unlabeled_data_value,
+        labels_are_strings=label_dtype == "STRING",
         positive_threshold=5,
         negative_threshold=95,
         data_output_gcs_uri=output_dir,
@@ -391,7 +509,7 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         header="x1,x2,y",
         label_column_name="y",
         column_names_dict=collections.OrderedDict(
-            [("x1", "FLOAT64"), ("x2", "FLOAT64"), ("y", "INT64")]
+            [("x1", "FLOAT64"), ("x2", "FLOAT64"), ("y", label_dtype)]
         ),
         num_features=2,
     )
@@ -400,8 +518,23 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         location_prefix="doesnt_matter_for_uploader",
         files=["doesnt_matter_for_uploader"],
     )
-    all_features = self.data_df[["x1", "x2"]].to_numpy()
-    all_labels = self.data_df["y"].to_numpy()
+    test_data_df = self.data_df.copy()
+    all_features = test_data_df[["x1", "x2"]].to_numpy()
+    all_labels = test_data_df["y"]
+    # Empty label backfill only happens when the DataLoader runs. Here, we
+    # backfill the empty labels to be all the `unlabeled_data_value`.
+    all_labels.replace(
+        "",
+        str(unlabeled_data_value)
+        if label_dtype == "STRING"
+        else unlabeled_data_value,
+        inplace=True,
+    )
+    if label_dtype == "STRING":
+      all_labels = all_labels.astype(str)
+    else:
+      all_labels = all_labels.astype(int)
+    all_labels = all_labels.to_numpy()
     # Create 2 batches of features and labels.
     features1 = all_features[0:2]
     labels1 = all_labels[0:2]
@@ -428,13 +561,15 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         np.repeat([0], len(features2))
         .reshape(len(features2), 1)
         .astype(np.int64)
-    )  # Upload batch 1.
+    )
+    # Upload batch 1.
     data_loader.upload_dataframe_to_gcs(
         batch=1,
         features=features1,
         labels=labels1,
         weights=weights1,
         pseudolabel_flags=flags1,
+        map_labels_to_bool=False,
     )
     # Upload batch 2.
     data_loader.upload_dataframe_to_gcs(
@@ -443,40 +578,60 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         labels=labels2,
         weights=weights2,
         pseudolabel_flags=flags2,
+        map_labels_to_bool=False,
     )
     # Sorting means batch 1 file will be first.
     files_list = sorted(tf.io.gfile.listdir(output_dir))
     self.assertLen(files_list, 2)
     col_names = ["x1", "x2", "alpha", "is_pseudolabel", "y"]
+    col_dtypes = [
+        "float64",
+        "float64",
+        "float64",
+        "int64",
+        "str" if label_dtype == "STRING" else "int64",
+    ]
+    col_dtypes_map = dict(zip(col_names, col_dtypes))
     expected_df1 = pd.concat(
         [
-            self.data_df.iloc[0:2, 0:-1].reset_index(drop=True),
+            test_data_df.iloc[0:2, 0:-1].reset_index(drop=True),
             pd.DataFrame(weights1, columns=["alpha"]),
             pd.DataFrame(flags1, columns=["is_pseudolabel"]),
-            self.data_df.iloc[0:2, -1].reset_index(drop=True),
+            test_data_df.iloc[0:2, -1].reset_index(drop=True),
         ],
         names=col_names,
         ignore_index=True,
         axis=1,
     )
     expected_df1.columns = col_names
+    expected_df1 = expected_df1.astype(col_dtypes_map)
     expected_df2 = pd.concat(
         [
-            self.data_df.iloc[2:, 0:-1].reset_index(drop=True),
+            test_data_df.iloc[2:, 0:-1].reset_index(drop=True),
             pd.DataFrame(weights2, columns=["alpha"]),
             pd.DataFrame(flags2, columns=["is_pseudolabel"]),
-            self.data_df.iloc[2:, -1].reset_index(drop=True),
+            test_data_df.iloc[2:, -1].reset_index(drop=True),
         ],
         ignore_index=True,
         axis=1,
     )
     expected_df2.columns = col_names
+    expected_df2 = expected_df2.astype(col_dtypes_map)
     expected_dfs = [expected_df1, expected_df2]
     for i, file_name in enumerate(files_list):
       with self.subTest(msg=f"file_{i}"):
         file_path = os.path.join(output_dir, file_name)
         with tf.io.gfile.GFile(file_path, "r") as f:
-          got_df = pd.read_csv(f, header=0)
+          got_df = pd.read_csv(
+              f,
+              header=0,
+              index_col=None,
+              dtype={
+                  runner_parameters.label_col_name: (
+                      "str" if label_dtype == "STRING" else "int64"
+                  )
+              },
+          )
         pd.testing.assert_frame_equal(
             got_df, expected_dfs[i], check_exact=False, check_like=True
         )

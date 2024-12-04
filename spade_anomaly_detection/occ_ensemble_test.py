@@ -85,21 +85,39 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
         msg='Model count in ensemble not equal to specified ensemble size.',
     )
 
-  def test_score_unlabeled_data_no_error(self):
+  @parameterized.named_parameters(
+      ('labels_are_integers', False),
+      ('labels_are_strings', True),
+  )
+  def test_score_unlabeled_data_no_error(self, labels_are_strings: bool):
     batches_per_occ = 1
     positive_threshold = 2
     negative_threshold = 90
-    positive_data_value = 1
-    negative_data_value = 0
-    unlabeled_data_value = -1
     alpha = 0.8
+
+    if labels_are_strings:
+      positive_data_value = b'1'
+      negative_data_value = b'0'
+      unlabeled_data_value = b'-1'
+    else:
+      positive_data_value = 1
+      negative_data_value = 0
+      unlabeled_data_value = -1
 
     occ_train_dataset = data_loader.load_tf_dataset_from_csv(
         dataset_name='drug_train_pu_labeled',
         batch_size=None,
-        filter_label_value=unlabeled_data_value,
+        # Coerce `unlabeled_data_value` to int since the test dataset contains
+        # only integer labels.
+        filter_label_value=int(unlabeled_data_value),
     )
     features_len = occ_train_dataset.cardinality().numpy()
+    if labels_are_strings:
+      # Treat the labels as strings for testing. Note that the test dataset
+      # contains only integer labels.
+      occ_train_dataset = occ_train_dataset.map(
+          lambda x, y: (x, tf.as_string(y))
+      )
 
     ensemble_obj = occ_ensemble.GmmEnsemble(
         n_components=1,
@@ -114,18 +132,23 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
     )
     ensemble_obj.fit(occ_train_dataset, batches_per_occ)
 
-    features, labels = (
-        data_loader.load_tf_dataset_from_csv(
-            dataset_name='drug_train_pu_labeled',
-            batch_size=500,
-            filter_label_value=None,
-        )
-        .as_numpy_iterator()
-        .next()
+    occ_train_dataset = data_loader.load_tf_dataset_from_csv(
+        dataset_name='drug_train_pu_labeled',
+        batch_size=500,
+        filter_label_value=None,
     )
+    if labels_are_strings:
+      # Treat the labels as strings for testing. Note that the test dataset
+      # contains only integer labels.
+      occ_train_dataset = occ_train_dataset.map(
+          lambda x, y: (x, tf.as_string(y))
+      )
+    features, labels = occ_train_dataset.as_numpy_iterator().next()
 
     label_count_before_labeling = len(
-        np.where((labels == 0) | (labels == 1))[0]
+        np.where(
+            (labels == negative_data_value) | (labels == positive_data_value)
+        )[0]
     )
 
     updated_features, updated_labels, weights, pseudolabel_flags = (
@@ -140,7 +163,10 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
     )
 
     label_count_after_labeling = len(
-        np.where((updated_labels == 0) | (updated_labels == 1))[0]
+        np.where(
+            (updated_labels == negative_data_value)
+            | (updated_labels == positive_data_value)
+        )[0]
     )
 
     new_label_count = label_count_after_labeling - label_count_before_labeling

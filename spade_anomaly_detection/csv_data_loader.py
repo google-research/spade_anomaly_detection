@@ -30,9 +30,10 @@
 """Implements a CSV data loader."""
 
 import collections
+import csv
 import dataclasses
 import os
-from typing import Callable, Dict, Final, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, Final, Mapping, Optional, Sequence, Tuple, cast
 
 from absl import logging
 from google.cloud import storage
@@ -43,13 +44,18 @@ from spade_anomaly_detection import parameters
 import tensorflow as tf
 
 
-# Types are from spade_anomaly_detection/data_utils/feature_metadata.py
+# Types are from //cloud/ml/research/data_utils/feature_metadata.py
 _FEATURES_TYPE: Final[str] = 'FLOAT64'
+_SOURCE_LABEL_TYPE: Final[str] = 'STRING'
+_SOURCE_LABEL_DEFAULT_VALUE: Final[str] = '-1'
 _LABEL_TYPE: Final[str] = 'INT64'
 
 # Setting the shuffle buffer size to 1M seems to be necessary to get the CSV
 # reader to provide a diversity of data to the model.
 _SHUFFLE_BUFFER_SIZE: Final[int] = 1_000_000
+_SPLIT_CHAR: Final[str] = ','
+
+LabelColumnType = str | list[str] | int | list[int] | None
 
 
 def _get_header_from_input_file(inputs_file: str) -> str:
@@ -156,7 +162,7 @@ class ColumnNamesInfo:
     """
     header = _get_header_from_input_file(inputs_file=inputs_file)
     header = header.replace('\n', '')
-    all_columns = header.split(',')
+    all_columns = header.split(_SPLIT_CHAR)
     if label_column_name not in all_columns:
       raise ValueError(
           f'Label column {label_column_name} not found in the header: {header}'
@@ -166,7 +172,7 @@ class ColumnNamesInfo:
     column_names_dict = collections.OrderedDict(
         zip(all_columns, features_types)
     )
-    column_names_dict[label_column_name] = _LABEL_TYPE
+    column_names_dict[label_column_name] = _SOURCE_LABEL_DEFAULT_VALUE
     return ColumnNamesInfo(
         column_names_dict=column_names_dict,
         header=header,
@@ -202,13 +208,41 @@ class CsvDataLoader:
           'Data input GCS URI is not set in the runner parameters. Please set '
           'the `data_input_gcs_uri` field in the runner parameters.'
       )
-    self.all_labels = [
+    self._label_counts = None
+    self._last_read_metadata = None
+
+    self.all_labels: Final[list[int] | list[str]] = [
         self.runner_parameters.positive_data_value,
         self.runner_parameters.negative_data_value,
         self.runner_parameters.unlabeled_data_value,
     ]
-    self._label_counts = None
-    self._last_read_metadata = None
+    # Construct a label remap from string labels to integers. The table is not
+    # necessary for the case when the labels are all integers. But instead of
+    # checking if the labels are all integers, we construct the table and use
+    # it only if labels are strings. The table is lightweight so it does not
+    # add overhead.
+    str_labels: list[str] = [str(l) for l in self.all_labels]
+    # Construct a label remap from string labels to integers.
+    if self.runner_parameters.labels_are_strings:
+      orig_labels: list[int] = [
+          self.convert_str_to_int(l) for l in self.all_labels
+      ]
+    else:
+      orig_labels: list[int] = cast(list[int], self.all_labels)
+    # Key is always a string.
+    orig_map: dict[str, int] = dict(zip(str_labels, orig_labels))
+    # Add the empty string to the label remap table. `None` is not added because
+    # the Data Loader will default to '' if the label is None.
+    orig_map[''] = cast(
+        int,
+        self.convert_str_to_int(self.runner_parameters.unlabeled_data_value)
+        if self.runner_parameters.labels_are_strings
+        else self.runner_parameters.unlabeled_data_value,
+    )
+    # Convert to the Tensorflow lookup table.
+    self._label_remap_table: Final[tf.lookup.StaticHashTable] = (
+        self._get_label_remap_table(labels_mapping=orig_map)
+    )
 
   @property
   def label_counts(self) -> Dict[int | str, int]:
@@ -265,12 +299,16 @@ class CsvDataLoader:
         column_names_info=column_names_info,
     )
 
+  @classmethod
   def _get_filter_by_label_value_func(
-      self,
-      label_column_filter_value: int | list[int] | None,
+      cls,
+      label_column_filter_value: LabelColumnType,
       exclude_label_value: bool = False,
   ) -> Callable[[tf.Tensor, tf.Tensor], bool]:
     """Returns a function that filters a record based on the label column value.
+
+    This function will return a function that filters a record based on the
+    label column value whether it is a string or an integer.
 
     Args:
       label_column_filter_value: The value of the label column to use as a
@@ -286,8 +324,27 @@ class CsvDataLoader:
     """
 
     def filter_func(features: tf.Tensor, label: tf.Tensor) -> bool:  # pylint: disable=unused-argument
-      if not label_column_filter_value:
+      if label_column_filter_value is None:
         return True
+      if (
+          isinstance(label, tf.Tensor)
+          and label.dtype == tf.dtypes.string
+          or isinstance(label, np.ndarray)
+          and label.dtype == np.str_
+          or isinstance(label, list)
+          and isinstance(label[0], str)
+      ):
+        # If the label dtype is string, convert it to an integer dtype,
+        # *assuming* that the string is composed of only digits.
+        try:
+          label = tf.strings.to_number(
+              label, tf.dtypes.as_dtype(_LABEL_TYPE.lower())
+          )
+        except tf.errors.InvalidArgumentError as e:
+          logging.exception(
+              'Failed to convert label %s to integer: %s', label, e
+          )
+          raise e
       label_cast = tf.cast(label[0], tf.dtypes.as_dtype(_LABEL_TYPE.lower()))
       label_column_filter_value_cast = tf.cast(
           label_column_filter_value, label_cast.dtype
@@ -300,12 +357,45 @@ class CsvDataLoader:
 
     return filter_func
 
+  @classmethod
+  def convert_str_to_int(cls, value: str) -> int:
+    """Converts a string integer label to an integer label."""
+    if isinstance(value, str) and value.lstrip('-').isdigit():
+      return int(value)
+    elif isinstance(value, int):
+      return value
+    else:
+      raise ValueError(
+          f'Label {value} of type {type(value)} is not a string integer.'
+      )
+
+  @classmethod
+  def _get_label_remap_table(
+      cls, labels_mapping: dict[str, int]
+  ) -> tf.lookup.StaticHashTable:
+    """Returns a label remap table that converts string labels to integers."""
+    # The possible keys are '', '-1, '0', '1'. None is not included because the
+    # Data Loader will default to '' if the label is None.
+    keys_tensor = tf.constant(
+        list(labels_mapping.keys()),
+        dtype=tf.dtypes.as_dtype(_SOURCE_LABEL_TYPE.lower()),
+    )
+    vals_tensor = tf.constant(
+        list(labels_mapping.values()),
+        dtype=tf.dtypes.as_dtype(_LABEL_TYPE.lower()),
+    )
+    label_remap_table = tf.lookup.StaticHashTable(
+        tf.lookup.KeyValueTensorInitializer(keys_tensor, vals_tensor),
+        default_value=-1,
+    )
+    return label_remap_table
+
   def load_tf_dataset_from_csv(
       self,
       input_path: str,
       label_col_name: str,
       batch_size: Optional[int] = None,
-      label_column_filter_value: Optional[int | list[int]] = None,
+      label_column_filter_value: LabelColumnType = None,
       exclude_label_value: bool = False,
   ) -> tf.data.Dataset:
     """Convert multiple CSV files to a tf.data.Dataset.
@@ -361,7 +451,7 @@ class CsvDataLoader:
         column_defaults=column_defaults,
         label_name=label_col_name,
         select_columns=None,
-        field_delim=',',
+        field_delim=_SPLIT_CHAR,
         use_quote_delim=True,
         na_value='',
         header=True,
@@ -382,6 +472,24 @@ class CsvDataLoader:
           f'Dataset with prefix {self._last_read_metadata.location_prefix} not '
           'created.'
       )
+
+    def remap_label(label: str | tf.Tensor) -> int | tf.Tensor:
+      """Remaps the label to an integer."""
+      if isinstance(label, str) or (
+          isinstance(label, tf.Tensor) and label.dtype == tf.dtypes.string
+      ):
+        return self._label_remap_table.lookup(label)
+      return label
+
+    # The Dataset can have labels of type int or str. Cast them to int.
+    dataset = dataset.map(
+        lambda features, label: (features, remap_label(label)),
+        num_parallel_calls=tf.data.AUTOTUNE,
+        deterministic=True,
+    )
+
+    # Filter the dataset by label column value. Filtering is applied after
+    # re-mapping the labels so that the labels are all integers.
     ds_filter_func = self._get_filter_by_label_value_func(
         label_column_filter_value=label_column_filter_value,
         exclude_label_value=exclude_label_value,
@@ -394,6 +502,7 @@ class CsvDataLoader:
         features: Mapping[str, tf.Tensor],
         label: tf.Tensor,
     ) -> Tuple[tf.Tensor, tf.Tensor]:
+      """Combines the features into a single tensor."""
       feature_matrix = tf.squeeze(tf.stack(list(features.values()), axis=1))
       feature_matrix = tf.reshape(feature_matrix, (-1,))
       feature_matrix = tf.cast(
@@ -420,33 +529,51 @@ class CsvDataLoader:
       dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
     # This Dataset was just created. Calculate the label distribution.
+    # Any string labels were already re-mapped to integers. So keys are always
+    # strings and values are always integers.
     self._label_counts = self.counts_by_label(dataset)
     logging.info('Label counts: %s', self._label_counts)
 
     return dataset
 
-  def counts_by_label(
-      self,
-      dataset: tf.data.Dataset,
-  ) -> Dict[int | str, int]:
-    """Counts the number of samples in each label class in the dataset."""
+  def counts_by_label(self, dataset: tf.data.Dataset) -> Dict[int, int]:
+    """Counts the number of samples in each label class in the dataset.
+
+    When this function is called, the labels in the Dataset have already been
+    re-mapped to integers. So all counting operations make this assumption.
+
+    Args:
+      dataset: The dataset to count the labels in.
+
+    Returns:
+      A dictionary of label class (as integer) to counts (as integer).
+    """
 
     @tf.function
     def count_class(
-        counts: Dict[int, tf.Tensor],
+        counts: Dict[int, int],  # Keys are always strings.
         batch: Tuple[tf.Tensor, tf.Tensor],
-    ) -> Dict[int, tf.Tensor]:
+    ) -> Dict[int, int]:
       _, labels = batch
-      new_counts = counts.copy()
+      # Keys are always strings.
+      new_counts: Dict[int, int] = counts.copy()
       for i in self.all_labels:
-        cc = tf.cast(labels == i, tf.int32)
-        if i in list(new_counts.keys()):
-          new_counts[i] += tf.reduce_sum(cc)
+        # This function is called after the Dataset is constructed and the
+        # labels are re-mapped to integers. So convert the label to an integer.
+        if isinstance(i, str):
+          i_for_compare = self.convert_str_to_int(i)
         else:
-          new_counts[i] = tf.reduce_sum(cc)
+          i_for_compare = i
+        cc: tf.Tensor = tf.cast(labels == i_for_compare, tf.int32)
+        if i_for_compare in list(new_counts.keys()):
+          new_counts[i_for_compare] += tf.reduce_sum(cc)
+        else:
+          new_counts[i_for_compare] = tf.reduce_sum(cc)
       return new_counts
 
-    initial_state = dict((i, 0) for i in self.all_labels)
+    initial_state = dict(
+        (self.convert_str_to_int(i), 0) for i in self.all_labels
+    )
     counts = dataset.reduce(
         initial_state=initial_state, reduce_func=count_class
     )
@@ -477,12 +604,16 @@ class CsvDataLoader:
       )
 
     positive_count = self._label_counts[
-        self.runner_parameters.positive_data_value
+        self.convert_str_to_int(self.runner_parameters.positive_data_value)
     ]
 
     labeled_data_record_count = (
-        self._label_counts[self.runner_parameters.positive_data_value]
-        + self._label_counts[self.runner_parameters.negative_data_value]
+        self._label_counts[
+            self.convert_str_to_int(self.runner_parameters.positive_data_value)
+        ]
+        + self._label_counts[
+            self.convert_str_to_int(self.runner_parameters.negative_data_value)
+        ]
     )
 
     positive_threshold = 100 * (positive_count / labeled_data_record_count)
@@ -503,6 +634,7 @@ class CsvDataLoader:
       labels: np.ndarray,
       weights: Optional[np.ndarray] = None,
       pseudolabel_flags: Optional[np.ndarray] = None,
+      map_labels_to_bool: bool = False,
   ) -> None:
     """Uploads the dataframe to BigQuery, create or replace table.
 
@@ -512,6 +644,8 @@ class CsvDataLoader:
       labels: Numpy array of labels.
       weights: Optional numpy array of weights.
       pseudolabel_flags: Optional numpy array of pseudolabel flags.
+      map_labels_to_bool: If True, map labels to bool. This is useful for
+        uploading data to BigQuery or AutoML for further analysis.
 
     Returns:
       None.
@@ -536,6 +670,9 @@ class CsvDataLoader:
     column_names = list(
         self._last_read_metadata.column_names_info.column_names_dict.keys()
     )
+    # Save a copy of the feature column names.
+    feature_column_names = column_names.copy()
+    feature_column_names.remove(self.runner_parameters.label_col_name)
 
     # If the weights are provided, add them to the column names and to the
     # combined data.
@@ -566,13 +703,30 @@ class CsvDataLoader:
     column_names.append(self.runner_parameters.label_col_name)
 
     complete_dataframe = pd.DataFrame(data=combined_data, columns=column_names)
-
-    # Adjust label column type so that users can go straight to BigQuery or
-    # AutoML without having to adjust data. Both of these products require a
-    # boolean or string target column, not integer.
-    complete_dataframe[self.runner_parameters.label_col_name] = (
-        complete_dataframe[self.runner_parameters.label_col_name].astype('bool')
-    )
+    feature_column_dtypes_map = {
+        c: _FEATURES_TYPE.lower() for c in feature_column_names
+    }
+    column_dtypes_map = {
+        self.runner_parameters.label_col_name: (
+            str if self.runner_parameters.labels_are_strings else int
+        ),
+        data_loader.WEIGHT_COLUMN_NAME: np.float64,
+        data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME: np.int64,
+    } | feature_column_dtypes_map
+    complete_dataframe = complete_dataframe.astype(column_dtypes_map)
+    if map_labels_to_bool:
+      # Adjust label column type so that users can go straight to BigQuery or
+      # AutoML without having to adjust data. Both of these products require a
+      # boolean or string target column, not integer.
+      complete_dataframe[
+          self.runner_parameters.label_col_name
+      ] = complete_dataframe[self.runner_parameters.label_col_name].map({
+          self.runner_parameters.positive_data_value: True,
+          self.runner_parameters.negative_data_value: False,
+      })
+      complete_dataframe[self.runner_parameters.label_col_name] = (
+          complete_dataframe[self.runner_parameters.label_col_name].astype(bool)
+      )
 
     # Adjust pseudolabel flag column type.
     if pseudolabel_flags is not None:
@@ -586,10 +740,12 @@ class CsvDataLoader:
         self.runner_parameters.data_output_gcs_uri,
         f'pseudo_labeled_batch_{batch}.csv',
     )
-    with tf.io.gfile.GFile(
-        output_path,
-        'w',
-    ) as f:
-      complete_dataframe.to_csv(f, index=False, header=True)
+    with tf.io.gfile.GFile(output_path, 'w') as f:
+      complete_dataframe.to_csv(
+          f,
+          index=False,
+          header=True,
+          quoting=csv.QUOTE_NONNUMERIC,
+      )
     if self.runner_parameters.verbose:
       logging.info('Uploaded pseudo-labeled data to %s', output_path)

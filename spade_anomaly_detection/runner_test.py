@@ -27,14 +27,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for runner."""
+"""Tests for the runner for the SPADE algorithm."""
 
 import re
 from typing import Optional, Pattern, Sequence, Union
 from unittest import mock
 
+from absl.testing import parameterized
 import numpy as np
-from parameterized import parameterized
 from spade_anomaly_detection import csv_data_loader
 from spade_anomaly_detection import data_loader
 from spade_anomaly_detection import occ_ensemble
@@ -45,7 +45,7 @@ import tensorflow as tf
 import tensorflow_decision_forests as tfdf
 
 
-class RunnerBQTest(tf.test.TestCase):
+class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -59,6 +59,7 @@ class RunnerBQTest(tf.test.TestCase):
         positive_data_value=5,
         negative_data_value=3,
         unlabeled_data_value=-100,
+        labels_are_strings=False,
         positive_threshold=5,
         negative_threshold=95,
         ignore_columns=None,
@@ -558,8 +559,8 @@ class RunnerBQTest(tf.test.TestCase):
           self.runner_parameters.unlabeled_data_value, runner_object.test_y
       )
 
-  @parameterized.expand(
-      [parameters.TrainSetting.PNU, parameters.TrainSetting.PU]
+  @parameterized.named_parameters(
+      [('pnu', parameters.TrainSetting.PNU), ('pu', parameters.TrainSetting.PU)]
   )
   @mock.patch.object(occ_ensemble.GmmEnsemble, 'pseudo_label', autospec=True)
   def test_preprocessing_array_sizes_no_error(
@@ -811,11 +812,11 @@ class RunnerBQTest(tf.test.TestCase):
         * self.runner_parameters.test_dataset_holdout_fraction,
     )
 
-  @parameterized.expand([
-      (None, 99, 0.01, 99),
-      (5, None, 5, 98),
-      (None, None, 0.01, 98),
-      (5, 99, 5, 99),
+  @parameterized.named_parameters([
+      ('no_pos_threshold', None, 99, 0.01, 99),
+      ('no_neg_threshold', 5, None, 5, 98),
+      ('no_thresholds', None, None, 0.01, 98),
+      ('all_thresholds', 5, 99, 5, 99),
   ])
   @mock.patch.object(
       data_loader.DataLoader, 'get_label_thresholds', autospec=True
@@ -852,7 +853,7 @@ class RunnerBQTest(tf.test.TestCase):
     )
 
 
-class RunnerCSVTest(tf.test.TestCase):
+class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -866,6 +867,7 @@ class RunnerCSVTest(tf.test.TestCase):
         positive_data_value=5,
         negative_data_value=3,
         unlabeled_data_value=-100,
+        labels_are_strings=False,
         positive_threshold=5,
         negative_threshold=95,
         ignore_columns=None,
@@ -1030,7 +1032,276 @@ class RunnerCSVTest(tf.test.TestCase):
       ]
       self.mock_label_counts.return_value = self.label_counts
 
-  def test_runner_supervised_model_fit_with_csv_data(self):
+  @parameterized.named_parameters([
+      ('labels_are_strings_false', False, 5, 3, -100),
+      ('labels_are_strings_true', True, '5', '3', '-100'),
+  ])
+  def test_csv_runner_csv_data_loader_no_error(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    with self.subTest(name='StatsDataset'):
+      self.mock_load_tf_dataset_from_csv.assert_any_call(
+          mock.ANY,
+          input_path=self.runner_parameters.data_input_gcs_uri,
+          label_col_name=self.runner_parameters.label_col_name,
+          batch_size=1,
+      )
+
+    # Check the batch size here to ensure we are dividing the dataset into 5
+    # shards.
+    with self.subTest(name='OccDataset'):
+      self.mock_load_tf_dataset_from_csv.assert_any_call(
+          mock.ANY,
+          input_path=self.runner_parameters.data_input_gcs_uri,
+          label_col_name=self.runner_parameters.label_col_name,
+          # Verify that both negative and unlabeled samples are used.
+          label_column_filter_value=[
+              runner_object.int_unlabeled_data_value,
+              runner_object.int_negative_data_value,
+          ],
+          # Verify that batch size is computed with both negative and unlabeled
+          # sample counts.
+          batch_size=int(
+              (self.unlabeled_examples + self.negative_examples)
+              // self.runner_parameters.ensemble_count
+          ),
+      )
+    # Assert that the data loader is also called to fetch all records.
+    with self.subTest(name='InferenceAndSupervisedDataset'):
+      self.mock_load_tf_dataset_from_csv.assert_any_call(
+          mock.ANY,
+          input_path=self.runner_parameters.data_input_gcs_uri,
+          label_col_name=self.runner_parameters.label_col_name,
+          batch_size=self.all_examples,
+      )
+
+  @parameterized.named_parameters([
+      ('labels_are_strings_false', False, 5, 3, -100),
+      ('labels_are_strings_true', True, '5', '3', '-100'),
+  ])
+  def test_csv_runner_supervised_model_fit(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
+    self.runner_parameters.alpha = 0.8
+    self.runner_parameters.negative_threshold = 0
+
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    supervised_model_actual_kwargs = (
+        self.mock_supervised_model_train.call_args.kwargs
+    )
+
+    with self.subTest('NoUnlabeledData'):
+      self.assertNotIn(
+          runner_object.int_unlabeled_data_value,
+          supervised_model_actual_kwargs['labels'],
+          msg='Unlabeled data was used to fit the supervised model.',
+      )
+    with self.subTest('LabelWeights'):
+      self.assertIn(
+          self.runner_parameters.alpha,
+          supervised_model_actual_kwargs['weights'],
+      )
+
+  @parameterized.named_parameters([
+      ('labels_are_strings_false', False, 5, 3, -100),
+      ('labels_are_strings_true', True, '5', '3', '-100'),
+  ])
+  def test_csv_supervised_model_evaluation_no_error(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
+    runner_obj = runner.Runner(self.runner_parameters)
+    runner_obj.run()
+
+    evaluate_arguments = self.mock_supervised_model_evaluate.call_args.kwargs
+
+    with self.subTest(name='TestLabels'):
+      self.assertNotIn(
+          runner_obj.int_unlabeled_data_value, evaluate_arguments['y']
+      )
+      self.assertIn(1, evaluate_arguments['y'])
+      self.assertIn(0, evaluate_arguments['y'])
+    with self.subTest(name='FeaturesNotNull'):
+      self.assertIsNotNone(evaluate_arguments['x'])
+
+  @parameterized.named_parameters([
+      ('labels_are_strings_false', False, 5, 3, -100),
+      ('labels_are_strings_true', True, '5', '3', '-100'),
+  ])
+  def test_csv_proprocessing_inputs_supervised_model_train(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    mmock_train_feature_value = (
+        self.mock_supervised_model_train.call_args.kwargs['labels']
+    )
+
+    self.assertNotIn(
+        runner_object.int_unlabeled_data_value, mmock_train_feature_value
+    )
+
+  @parameterized.named_parameters([
+      ('labels_are_strings_false', False, 5, 3, -100),
+      ('labels_are_strings_true', True, '5', '3', '-100'),
+  ])
+  def test_csv_upload_only_setting_true_no_error(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
+    self.runner_parameters.upload_only = True
+    self.runner_parameters.data_output_gcs_uri = (
+        'gs://output_bucket/output_pseudolabels_folder'
+    )
+
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    with self.subTest('SupervisedModelNotCalled'):
+      self.mock_supervised_model_train.assert_not_called()
+      self.mock_supervised_model_evaluate.assert_not_called()
+      self.mock_supervised_model_save.assert_not_called()
+
+    with self.subTest('CSVUploadCalled'):
+      self.mock_csv_upload.assert_called_once()
+
+  @parameterized.named_parameters([
+      ('labels_are_strings_false', False, 5, 3, -100),
+      ('labels_are_strings_true', True, '5', '3', '-100'),
+  ])
+  def test_csv_upload_only_setting_true_throw_error_no_gcs_uri(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
+    self.runner_parameters.upload_only = True
+    self.runner_parameters.output_bigquery_table_path = ''
+    self.runner_parameters.data_output_gcs_uri = ''
+    runner_object = runner.Runner(self.runner_parameters)
+
+    with self.assertRaisesRegex(
+        ValueError,
+        r'output_bigquery_table_path or data_output_gcs_uri needs to be '
+        r'specified in',
+    ):
+      runner_object.run()
+
+  @parameterized.named_parameters([
+      ('labels_are_strings_false', False, 5, 3, -100),
+      ('labels_are_strings_true', True, '5', '3', '-100'),
+  ])
+  def test_csv_upload_only_false_no_error(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
+    self.runner_parameters.upload_only = False
+    self.runner_parameters.data_output_gcs_uri = (
+        'gs://output_bucket/output_pseudolabels_folder'
+    )
+
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    with self.subTest('SupervisedModelCalled'):
+      self.mock_supervised_model_train.assert_called_once()
+      self.mock_supervised_model_evaluate.assert_called_once()
+      self.mock_supervised_model_save.assert_called_once()
+
+    with self.subTest('CSVUploadCalled'):
+      self.mock_csv_upload.assert_called_once()
+
+  def test_csv_runner_supervised_model_fit_with_csv_data_int_labels(self):
+    self.runner_parameters.labels_are_strings = False
+    self.runner_parameters.positive_data_value = 5
+    self.runner_parameters.negative_data_value = 3
+    self.runner_parameters.unlabeled_data_value = -100
+    self.runner_parameters.alpha = 0.8
+    self.runner_parameters.negative_threshold = 0
+
+    runner_object = runner.Runner(self.runner_parameters)
+    runner_object.run()
+
+    supervised_model_actual_kwargs = (
+        self.mock_supervised_model_train.call_args.kwargs
+    )
+
+    with self.subTest('NoUnlabeledData'):
+      self.assertNotIn(
+          runner_object.int_unlabeled_data_value,
+          supervised_model_actual_kwargs['labels'],
+          msg='Unlabeled data was used to fit the supervised model.',
+      )
+    with self.subTest('LabelWeights'):
+      self.assertIn(
+          self.runner_parameters.alpha,
+          supervised_model_actual_kwargs['weights'],
+      )
+
+    with self.subTest('CSVUploadNotCalled'):
+      self.mock_csv_upload.assert_not_called()
+
+  def test_csv_runner_supervised_model_fit_with_csv_data_string_labels(self):
+    self.runner_parameters.labels_are_strings = True
+    self.runner_parameters.positive_data_value = '5'
+    self.runner_parameters.negative_data_value = '3'
+    self.runner_parameters.unlabeled_data_value = '-100'
     self.runner_parameters.alpha = 0.8
     self.runner_parameters.negative_threshold = 0
 
@@ -1052,6 +1323,9 @@ class RunnerCSVTest(tf.test.TestCase):
           self.runner_parameters.alpha,
           supervised_model_actual_kwargs['weights'],
       )
+
+    with self.subTest('CSVUploadNotCalled'):
+      self.mock_csv_upload.assert_not_called()
 
 
 if __name__ == '__main__':

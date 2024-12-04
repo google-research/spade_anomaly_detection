@@ -104,21 +104,30 @@ _LABEL_COL_NAME = flags.DEFINE_string(
     help="The name of the label column in BigQuery.",
 )
 
-_POSITIVE_DATA_VALUE = flags.DEFINE_integer(
+_LABELS_ARE_STRINGS = flags.DEFINE_bool(
+    "labels_are_strings",
+    default=True,
+    required=False,
+    help=(
+        "Set to True if the labels are strings. Otherwise the labels are ints."
+    ),
+)
+
+_POSITIVE_DATA_VALUE = flags.DEFINE_string(
     "positive_data_value",
     default=None,
     required=True,
     help="The column value used to define an anomalous (positive) data point.",
 )
 
-_NEGATIVE_DATA_VALUE = flags.DEFINE_integer(
+_NEGATIVE_DATA_VALUE = flags.DEFINE_string(
     "negative_data_value",
     default=None,
     required=True,
     help="The column value used to define a normal (negative) data point.",
 )
 
-_UNLABELED_DATA_VALUE = flags.DEFINE_integer(
+_UNLABELED_DATA_VALUE = flags.DEFINE_string(
     "unlabeled_data_value",
     default=None,
     required=True,
@@ -372,6 +381,7 @@ def main(argv: Sequence[str]) -> None:
       positive_data_value=_POSITIVE_DATA_VALUE.value,
       negative_data_value=_NEGATIVE_DATA_VALUE.value,
       unlabeled_data_value=_UNLABELED_DATA_VALUE.value,
+      labels_are_strings=_LABELS_ARE_STRINGS.value,
       positive_threshold=_POSITIVE_THRESHOLD.value,
       negative_threshold=_NEGATIVE_THRESHOLD.value,
       ignore_columns=_IGNORE_COLUMNS.value,
@@ -401,5 +411,6 @@ if __name__ == "__main__":
   try:
     app.run(main)
   except Exception as e:
+    logging.error(str(e))
     logging.shutdown()
-    raise e
+    raise

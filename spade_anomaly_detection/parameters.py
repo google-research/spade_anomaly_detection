@@ -27,8 +27,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Holds dataclasses and enums leveraged by the SPADE algorithm.
-"""
+"""Holds dataclasses and enums leveraged by the SPADE algorithm."""
+
 
 import dataclasses
 import enum
@@ -44,6 +44,19 @@ class TrainSetting(str, enum.Enum):
 
   PU = 'PU'
   PNU = 'PNU'
+
+
+# An immutable mapping of label values to their corresponding integer values.
+# This supports label values that the empty string. This value is mapped to -1,
+# which is the value used to denote unlabeled data.
+# None is not included in this mapping, because the Data Loader will default
+# to the empty string if the label column is empty.
+labels_mapping: Final[dict[str | None, int]] = {
+    '': -1,
+    '1': 1,
+    '0': 0,
+    '-1': -1,
+}
 
 
 @dataclasses.dataclass
@@ -71,6 +84,8 @@ class RunnerParameters:
       will be added to the end of the folder so that multiple runs of this won't
       overwrite previous runs.
     label_col_name: The name of the label column in the input BigQuery table.
+    labels_are_strings: Whether the labels in the input dataset are strings or
+      integers.
     positive_data_value: The value used in the label column to denote positive
       data - data points that are anomalous.
     negative_data_value: The value used in the label column to denote negative
@@ -163,9 +178,10 @@ class RunnerParameters:
   data_input_gcs_uri: str
   output_gcs_uri: str
   label_col_name: str
-  positive_data_value: int
-  negative_data_value: int
-  unlabeled_data_value: int
+  positive_data_value: int | str
+  negative_data_value: int | str
+  unlabeled_data_value: int | str
+  labels_are_strings: bool = True
   positive_threshold: Optional[float] = None
   negative_threshold: Optional[float] = None
   ignore_columns: Optional[Sequence[str]] = None
@@ -188,6 +204,8 @@ class RunnerParameters:
   verbose: bool = False
 
   def __post_init__(self):
+    """Validates the parameters and sets default values."""
+    # Parameter checks.
     if not (self.input_bigquery_table_path or self.data_input_gcs_uri):
       raise ValueError(
           '`input_bigquery_table_path` or `data_input_gcs_uri` must be set.'
@@ -212,3 +230,21 @@ class RunnerParameters:
           '`positive_data_value`, `negative_data_value` and'
           ' `unlabeled_data_value` must all be different from each other.'
       )
+    if self.labels_are_strings and not self._check_labels_are_strings():
+      raise TypeError(
+          '`labels_are_strings` must be True if `positive_data_value`, '
+          '`negative_data_value` and `unlabeled_data_value` are strings.'
+      )
+    # Adjust the labels if needed.
+    if not self.labels_are_strings:
+      self.positive_data_value = int(self.positive_data_value)
+      self.negative_data_value = int(self.negative_data_value)
+      self.unlabeled_data_value = int(self.unlabeled_data_value)
+
+  def _check_labels_are_strings(self) -> bool:
+    """Returns True if the labels are strings."""
+    return (
+        isinstance(self.positive_data_value, str)
+        and isinstance(self.negative_data_value, str)
+        and isinstance(self.unlabeled_data_value, str)
+    )

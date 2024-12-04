@@ -209,14 +209,16 @@ class GmmEnsemble:
         'negative_indices': negative_indices
     }
 
-  def pseudo_label(self,
-                   features: np.ndarray,
-                   labels: np.ndarray,
-                   positive_data_value: int,
-                   negative_data_value: Optional[int],
-                   unlabeled_data_value: int,
-                   alpha: float = 1.0,
-                   verbose: Optional[bool] = False) -> Sequence[np.ndarray]:
+  def pseudo_label(
+      self,
+      features: np.ndarray,
+      labels: np.ndarray,
+      positive_data_value: str | int,
+      negative_data_value: str | int | None,
+      unlabeled_data_value: str | int,
+      alpha: float = 1.0,
+      verbose: Optional[bool] = False,
+  ) -> Sequence[np.ndarray]:
     """Labels unlabeled data using the trained ensemble of OCCs.
 
     Args:
@@ -270,13 +272,15 @@ class GmmEnsemble:
         negative_features,
     ],
                                   axis=0)
-    new_labels = np.concatenate([
-        np.ones(len(new_positive_indices)),
-        np.zeros(len(new_negative_indices)),
-        np.ones(len(original_positive_idx)),
-        np.zeros(len(original_negative_idx))
-    ],
-                                axis=0)
+    new_labels = np.concatenate(
+        [
+            np.full(len(new_positive_indices), positive_data_value),
+            np.full(len(new_negative_indices), negative_data_value),
+            np.full(len(original_positive_idx), positive_data_value),
+            np.full(len(original_negative_idx), negative_data_value),
+        ],
+        axis=0,
+    )
     weights = np.concatenate([
         np.repeat(alpha, len(new_positive_indices)),
         np.repeat(alpha, len(new_negative_indices)),

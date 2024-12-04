@@ -78,6 +78,9 @@ class Runner:
     test_data_loader: An instance of the data loader, useful for performing a
       number of operations such as loading, filtering, and uploading of bigquery
       or CSV test data.
+    int_positive_data_value: The integer value of the positive data value.
+    int_negative_data_value: The integer value of the negative data value.
+    int_unlabeled_data_value: The integer value of the unlabeled data value.
   """
 
   def __init__(self, runner_parameters: parameters.RunnerParameters):
@@ -148,6 +151,26 @@ class Runner:
           else self.runner_parameters.negative_threshold
       )
 
+    # After the runner is initialized and the Data Loaders are instantiated,
+    # set local positive, negative and unlabeled data values to int. The integer
+    # values are used for filtering the data.
+    # Leave the original values unchanged (whether string or int).
+    self.int_positive_data_value = (
+        csv_data_loader.CsvDataLoader.convert_str_to_int(
+            self.runner_parameters.positive_data_value
+        )
+    )
+    self.int_negative_data_value = (
+        csv_data_loader.CsvDataLoader.convert_str_to_int(
+            self.runner_parameters.negative_data_value
+        )
+    )
+    self.int_unlabeled_data_value = (
+        csv_data_loader.CsvDataLoader.convert_str_to_int(
+            self.runner_parameters.unlabeled_data_value
+        )
+    )
+
   def _get_table_statistics(self) -> Mapping[str, float]:
     """Gets the statistics for the input table."""
     if self.data_format == DataFormat.BIGQUERY:
@@ -162,16 +185,16 @@ class Runner:
           input_path=self.runner_parameters.data_input_gcs_uri,
           label_col_name=self.runner_parameters.label_col_name,
           batch_size=1,
-          label_column_filter_value=[],
       )
       input_table_statistics = stats_data_loader.get_label_thresholds()
     return input_table_statistics
 
-  def _get_record_count_based_on_labels(self, label_value: int) -> int:
+  def _get_record_count_based_on_labels(self, label_value: int | str) -> int:
     """Gets the number of records in the input table.
 
     Args:
-      label_value: The value of the label to use as the filter for records.
+      label_value: The value of the label to use as the filter for records. Can
+        be an int or a string.
 
     Returns:
       The count of records.
@@ -200,7 +223,10 @@ class Runner:
       self.input_data_loader = cast(
           csv_data_loader.CsvDataLoader, self.input_data_loader
       )
-      label_record_count = self.input_data_loader.label_counts[label_value]
+      # labe_counts is a dictionary of int label values to int record counts.
+      label_record_count = self.input_data_loader.label_counts[
+          csv_data_loader.CsvDataLoader.convert_str_to_int(label_value)
+      ]
     return label_record_count
 
   def check_data_tables(
@@ -307,8 +333,10 @@ class Runner:
           batch_size=batch_size,
           # Train using negative labeled data and unlabeled data.
           label_column_filter_value=[
-              self.runner_parameters.unlabeled_data_value,
-              self.runner_parameters.negative_data_value,
+              # Use the int values for filtering because filtering happens after
+              # the dataset labels are converted to int.
+              self.int_unlabeled_data_value,
+              self.int_negative_data_value,
           ],
       )
     else:
@@ -322,8 +350,10 @@ class Runner:
           batch_size=batch_size,
           # Train using negative labeled data and unlabeled data.
           label_column_filter_value=[
-              self.runner_parameters.unlabeled_data_value,
-              self.runner_parameters.negative_data_value,
+              # Use the int values for filtering because filtering happens after
+              # the dataset labels are converted to int.
+              self.int_unlabeled_data_value,
+              self.int_negative_data_value,
           ],
       )
 
@@ -500,7 +530,7 @@ class Runner:
       # Remove any unlabeled samples that may be in the test set.
       unlabeled_sample_filter = (
           f'{self.runner_parameters.test_label_col_name} != '
-          f'{self.runner_parameters.unlabeled_data_value}'
+          f'{self.int_unlabeled_data_value}'
       )
       if self.runner_parameters.where_statements is not None:
         unlabeled_sample_where_statements = list(
@@ -532,15 +562,15 @@ class Runner:
           label_col_name=self.runner_parameters.test_label_col_name,
           batch_size=None,
           label_column_filter_value=[
-              self.runner_parameters.unlabeled_data_value,
+              self.int_unlabeled_data_value,
           ],
           exclude_label_value=True,
       )
       test_label_counts = self.test_data_loader.label_counts
       logging.info('Test label counts: %s', test_label_counts)
       test_dataset_size = (
-          test_label_counts[self.runner_parameters.positive_data_value]
-          + test_label_counts[self.runner_parameters.negative_data_value]
+          test_label_counts[self.int_positive_data_value]
+          + test_label_counts[self.int_negative_data_value]
       )
       test_tf_dataset = test_tf_dataset.batch(
           tf.cast(test_dataset_size, tf.int64)
@@ -577,7 +607,7 @@ class Runner:
 
     if self.runner_parameters.train_setting == parameters.TrainSetting.PNU:
       ground_truth_label_indices = np.where(
-          labels != self.runner_parameters.unlabeled_data_value
+          labels != self.int_unlabeled_data_value
       )[0]
       label_count = int(
           len(ground_truth_label_indices)
@@ -601,12 +631,8 @@ class Runner:
     elif self.runner_parameters.train_setting == parameters.TrainSetting.PU:
       # Uses all ground truth negative labels and the correct proportion of
       # positive labels for testing.
-      positive_indices = np.where(
-          labels == self.runner_parameters.positive_data_value
-      )[0]
-      negative_indices = np.where(
-          labels == self.runner_parameters.negative_data_value
-      )[0]
+      positive_indices = np.where(labels == self.int_positive_data_value)[0]
+      negative_indices = np.where(labels == self.int_negative_data_value)[0]
 
       positive_label_count = int(
           len(positive_indices)
@@ -655,8 +681,8 @@ class Runner:
         self.test_y = np.array(test_y)
 
         if not (
-            np.any(test_y == self.runner_parameters.positive_data_value)
-            and np.any(test_y == self.runner_parameters.negative_data_value)
+            np.any(test_y == self.int_positive_data_value)
+            and np.any(test_y == self.int_negative_data_value)
         ):
           raise ValueError(
               'Positive and negative labels must be in the testing set. Please '
@@ -674,10 +700,8 @@ class Runner:
       # Adjust the testing labels to values of 1 and 0 to align with the class
       # the supervised model is trained on.
       if self.test_y is not None:
-        self.test_y[self.test_y ==
-                    self.runner_parameters.positive_data_value] = 1
-        self.test_y[self.test_y ==
-                    self.runner_parameters.negative_data_value] = 0
+        self.test_y[self.test_y == self.int_positive_data_value] = 1
+        self.test_y[self.test_y == self.int_negative_data_value] = 0
 
     return (train_x, train_y)
 
@@ -744,10 +768,10 @@ class Runner:
 
     logging.info('Total record count: %s', total_record_count)
     unlabeled_record_count = self._get_record_count_based_on_labels(
-        self.runner_parameters.unlabeled_data_value
+        self.int_unlabeled_data_value
     )
     negative_record_count = self._get_record_count_based_on_labels(
-        self.runner_parameters.negative_data_value
+        self.int_negative_data_value
     )
 
     self.check_data_tables(
@@ -806,9 +830,9 @@ class Runner:
           ensemble_object.pseudo_label(
               features=train_x,
               labels=train_y,
-              positive_data_value=self.runner_parameters.positive_data_value,
-              negative_data_value=self.runner_parameters.negative_data_value,
-              unlabeled_data_value=self.runner_parameters.unlabeled_data_value,
+              positive_data_value=self.int_positive_data_value,
+              negative_data_value=self.int_negative_data_value,
+              unlabeled_data_value=self.int_unlabeled_data_value,
               alpha=self.runner_parameters.alpha,
               verbose=self.runner_parameters.verbose,
           )

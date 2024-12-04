@@ -34,9 +34,9 @@ of the entire SPADE algorithm that was not caught during the unit testing of
 individual modules and functions.
 """
 
-
 from unittest import mock
 
+from absl.testing import parameterized
 from spade_anomaly_detection import csv_data_loader
 from spade_anomaly_detection import data_loader
 from spade_anomaly_detection import parameters
@@ -66,6 +66,7 @@ class PerformanceTestOnBQData(tf.test.TestCase):
         positive_data_value=1,
         negative_data_value=0,
         unlabeled_data_value=-1,
+        labels_are_strings=False,
         positive_threshold=10,
         negative_threshold=90,
         test_label_col_name='y',
@@ -240,7 +241,7 @@ class PerformanceTestOnBQData(tf.test.TestCase):
     self.assertAlmostEqual(auc, 0.9178, delta=0.02)
 
 
-class PerformanceTestOnCSVData(tf.test.TestCase):
+class PerformanceTestOnCSVData(tf.test.TestCase, parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -262,6 +263,7 @@ class PerformanceTestOnCSVData(tf.test.TestCase):
         positive_data_value=1,
         negative_data_value=0,
         unlabeled_data_value=-1,
+        labels_are_strings=False,
         positive_threshold=10,
         negative_threshold=90,
         test_label_col_name='y',
@@ -399,8 +401,22 @@ class PerformanceTestOnCSVData(tf.test.TestCase):
         )
     )
 
-  def test_spade_auc_performance_pnu_single_batch(self):
+  @parameterized.named_parameters([
+      ('labels_are_ints', False, 1, 0, -1),
+      ('labels_are_strings', True, '1', '0', '-1'),
+  ])
+  def test_spade_auc_performance_pnu_single_batch(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
     self.runner_parameters.train_setting = parameters.TrainSetting.PNU
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
     self.runner_parameters.positive_threshold = 0.1
     self.runner_parameters.negative_threshold = 95
     self.runner_parameters.alpha = 0.1
@@ -433,8 +449,22 @@ class PerformanceTestOnCSVData(tf.test.TestCase):
     # performance seen on the ~580k row Coertype dataset in the PNU setting.
     self.assertAlmostEqual(auc, 0.9755, delta=0.02)
 
-  def test_spade_auc_performance_pu_single_batch(self):
+  @parameterized.named_parameters([
+      ('labels_are_ints', False, 1, 0, -1),
+      ('labels_are_strings', True, '1', '0', '-1'),
+  ])
+  def test_spade_auc_performance_pu_single_batch(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
     self.runner_parameters.train_setting = parameters.TrainSetting.PU
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
     self.runner_parameters.positive_threshold = 10
     self.runner_parameters.negative_threshold = 50
     self.runner_parameters.labeling_and_model_training_batch_size = (

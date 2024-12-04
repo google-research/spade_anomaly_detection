@@ -46,9 +46,9 @@ class ParametersTest(tf.test.TestCase):
             data_input_gcs_uri='gs://some_bucket/some_data_input_path',
             output_gcs_uri='gs://some_bucket/some_path',
             label_col_name='y',
-            positive_data_value=1,
-            negative_data_value=0,
-            unlabeled_data_value=-1,
+            positive_data_value='1',
+            negative_data_value='0',
+            unlabeled_data_value='-1',
         )
     with self.subTest(name='no_input_sources_specified'):
       with self.assertRaises(ValueError):
@@ -58,9 +58,9 @@ class ParametersTest(tf.test.TestCase):
             data_input_gcs_uri=None,
             output_gcs_uri='gs://some_bucket/some_path',
             label_col_name='y',
-            positive_data_value=1,
-            negative_data_value=0,
-            unlabeled_data_value=-1,
+            positive_data_value='1',
+            negative_data_value='0',
+            unlabeled_data_value='-1',
         )
 
   def test_equal_data_value_parameter_raises(self):
@@ -71,9 +71,23 @@ class ParametersTest(tf.test.TestCase):
           data_input_gcs_uri=None,
           output_gcs_uri='gs://some_bucket/some_path',
           label_col_name='y',
+          positive_data_value='1',
+          negative_data_value='0',
+          unlabeled_data_value='0',
+      )
+
+  def test_labels_are_strings_discrepancy_raises(self):
+    with self.assertRaises(TypeError):
+      _ = parameters.RunnerParameters(
+          train_setting=parameters.TrainSetting.PNU,
+          input_bigquery_table_path='some_project.some_dataset.some_table',
+          data_input_gcs_uri=None,
+          output_gcs_uri='gs://some_bucket/some_path',
+          label_col_name='y',
+          labels_are_strings=True,
           positive_data_value=1,
           negative_data_value=0,
-          unlabeled_data_value=0,
+          unlabeled_data_value=-1,
       )
 
 
