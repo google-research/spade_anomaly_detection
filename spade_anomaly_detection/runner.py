@@ -36,7 +36,6 @@ data set to batch fit a supervised model.
 """
 
 import enum
-# TODO(b/247116870): Change to collections when Vertex supports python 3.9
 from typing import Mapping, Optional, Tuple, cast
 
 from absl import logging
@@ -48,6 +47,8 @@ from spade_anomaly_detection import occ_ensemble
 from spade_anomaly_detection import parameters
 from spade_anomaly_detection import supervised_model
 import tensorflow as tf
+
+# TODO(b/247116870): Change to collections when Vertex supports python 3.9
 
 
 @enum.unique
@@ -135,6 +136,7 @@ class Runner:
     else:
       self.supervised_model_object = None
 
+    # If the thresholds are not set, use the thresholds from the input table.
     if (
         self.runner_parameters.positive_threshold is None
         or self.runner_parameters.negative_threshold is None
@@ -760,7 +762,7 @@ class Runner:
           batch_size=1,
       )
       train_label_counts = self.input_data_loader.label_counts
-      # TODO(sinharaj): This is not ideal, we should not need to read the files
+      # This is not ideal, we should not need to read the files
       # again. Find a way to get the label counts without reading the files.
       # Assumes that data loader has already been used to read the input table.
       total_record_count = sum(train_label_counts.values())
@@ -885,6 +887,7 @@ class Runner:
             labels=updated_labels,
             weights=weights,
         )
+    # End of pseudolabeling and supervised model training loop.
 
     if not self.runner_parameters.upload_only:
       self.evaluate_model()
