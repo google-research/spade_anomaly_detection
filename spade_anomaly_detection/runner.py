@@ -313,6 +313,8 @@ class Runner:
         negative_threshold=self.runner_parameters.negative_threshold,
         random_seed=self.runner_parameters.random_seed,
         verbose=self.runner_parameters.verbose,
+        unlabeled_data_value=self.int_unlabeled_data_value,
+        negative_data_value=self.int_negative_data_value,
     )
 
     training_record_count = unlabeled_record_count + negative_record_count
@@ -327,7 +329,7 @@ class Runner:
       self.input_data_loader = cast(
           data_loader.DataLoader, self.input_data_loader
       )
-      unlabeled_data = self.input_data_loader.load_tf_dataset_from_bigquery(
+      training_data = self.input_data_loader.load_tf_dataset_from_bigquery(
           input_path=self.runner_parameters.input_bigquery_table_path,
           label_col_name=self.runner_parameters.label_col_name,
           where_statements=self.runner_parameters.where_statements,
@@ -346,7 +348,7 @@ class Runner:
       self.input_data_loader = cast(
           csv_data_loader.CsvDataLoader, self.input_data_loader
       )
-      unlabeled_data = self.input_data_loader.load_tf_dataset_from_csv(
+      training_data = self.input_data_loader.load_tf_dataset_from_csv(
           input_path=self.runner_parameters.data_input_gcs_uri,
           label_col_name=self.runner_parameters.label_col_name,
           batch_size=batch_size,
@@ -358,10 +360,12 @@ class Runner:
               self.int_negative_data_value,
           ],
       )
+      ensemble_object.unlabeled_record_count = unlabeled_record_count
+      ensemble_object.negative_record_count = negative_record_count
 
     logging.info('Fitting ensemble.')
     ensemble_object.fit(
-        train_x=unlabeled_data,
+        train_x=training_data,
         batches_per_occ=self.runner_parameters.batches_per_model,
     )
     logging.info('Ensemble fit complete.')

@@ -528,15 +528,18 @@ class CsvDataLoader:
       dataset = dataset.batch(batch_size, deterministic=True)
       dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
-    # This Dataset was just created. Calculate the label distribution.
-    # Any string labels were already re-mapped to integers. So keys are always
-    # strings and values are always integers.
-    self._label_counts = self.counts_by_label(dataset)
+    # This Dataset was just created. Calculate the label distribution. Any
+    # string labels were already re-mapped to integers. So keys are always
+    # integers and values are EagerTensors. We need to extract the value within
+    # this Tensor for subsequent use.
+    self._label_counts = {
+        k: v.numpy() for k, v in self.counts_by_label(dataset).items()
+    }
     logging.info('Label counts: %s', self._label_counts)
 
     return dataset
 
-  def counts_by_label(self, dataset: tf.data.Dataset) -> Dict[int, int]:
+  def counts_by_label(self, dataset: tf.data.Dataset) -> Dict[int, tf.Tensor]:
     """Counts the number of samples in each label class in the dataset.
 
     When this function is called, the labels in the Dataset have already been

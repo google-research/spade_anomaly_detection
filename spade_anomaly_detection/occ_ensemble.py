@@ -42,6 +42,8 @@ import tensorflow as tf
 
 _RANDOM_SEED: Final[int] = 42
 
+_LABEL_TYPE: Final[str] = 'INT64'
+
 
 # TODO(b/247116870): Create abstract class for templating out future OCC models.
 class GmmEnsemble:
@@ -74,6 +76,12 @@ class GmmEnsemble:
       precision when raising this value, and an increase in recall when lowering
       it. Equavalent to saying the given data point needs to be X percentile or
       greater in order to be considered anomalous.
+    unlabeled_record_count: The number of unlabeled records in the dataset.
+    negative_record_count: The number of negative records in the dataset.
+    unlabeled_data_value: The value used in the label column to denote unlabeled
+      data.
+    negative_data_value: The value used in the label column to denote negative
+      data.
     verbose: Boolean denoting whether to send model performance and
       pseudo-labeling metrics to the GCP console.
     ensemble: A trained ensemble of one class classifiers.
@@ -90,6 +98,10 @@ class GmmEnsemble:
       positive_threshold: float = 1.0,
       negative_threshold: float = 95.0,
       random_seed: int = _RANDOM_SEED,
+      unlabeled_record_count: int | None = None,
+      negative_record_count: int | None = None,
+      unlabeled_data_value: int | None = None,
+      negative_data_value: int | None = None,
       verbose: bool = False,
   ) -> None:
     self.n_components = n_components
@@ -100,6 +112,10 @@ class GmmEnsemble:
     self.positive_threshold = positive_threshold
     self.negative_threshold = negative_threshold
     self._random_seed = random_seed
+    self.unlabeled_record_count = unlabeled_record_count
+    self.negative_record_count = negative_record_count
+    self.unlabeled_data_value = unlabeled_data_value
+    self.negative_data_value = negative_data_value
     self.verbose = verbose
 
     self.ensemble = []
@@ -119,6 +135,38 @@ class GmmEnsemble:
         warm_start=self._warm_start,
         max_iter=self.max_iter,
         random_state=self._random_seed,
+    )
+
+  def _get_filter_by_label_value_func(self, label_column_filter_value: int):
+    """Returns a function that filters a record based on the label column value.
+
+    Args:
+      label_column_filter_value: The value of the label column to use as a
+        filter. If None, all records are included.
+
+    Returns:
+      A function that returns True if the label column value is equal to the
+      label_column_filter_value parameter.
+    """
+
+    def filter_func(features: tf.Tensor, label: tf.Tensor) -> bool:  # pylint: disable=unused-argument
+      if label_column_filter_value is None:
+        return True
+      label_cast = tf.cast(label, tf.dtypes.as_dtype(_LABEL_TYPE.lower()))
+      label_column_filter_value_cast = tf.cast(
+          label_column_filter_value, label_cast.dtype
+      )
+      broadcast_equal = tf.equal(label_column_filter_value_cast, label_cast)
+      return tf.reduce_all(broadcast_equal)
+
+    return filter_func
+
+  def is_batched(self, dataset: tf.data.Dataset) -> bool:
+    """Returns True if the dataset is batched."""
+    # This suffices for the current use case of the OCC ensemble.
+    return len(dataset.element_spec[0].shape) == 2 and (
+        dataset.element_spec[0].shape[0] is None
+        or isinstance(dataset.element_spec[0].shape[0], int)
     )
 
   def fit(
@@ -142,15 +190,73 @@ class GmmEnsemble:
     if batches_per_occ > 1:
       self._warm_start = True
 
-    dataset_iterator = train_x.as_numpy_iterator()
+    has_batches = self.is_batched(train_x)
+    logging.info('has_batches is %s', has_batches)
+    negative_features = None
+
+    if (
+        not self.unlabeled_record_count
+        or not self.negative_record_count
+        or not has_batches
+        or self.unlabeled_data_value is None
+        or self.negative_data_value is None
+    ):
+      # Either the dataset is not batched, or we don't have all the details to
+      # extract the negative-labeled data. Hence we will use all the data for
+      # training.
+      dataset_iterator = train_x.as_numpy_iterator()
+    else:
+      # We unbatch the dataset so that we can separate-out the unlabeled and
+      # negative data points
+      ds_unbatched = train_x.unbatch()
+
+      ds_unlabeled = ds_unbatched.filter(
+          self._get_filter_by_label_value_func(self.unlabeled_data_value)
+      )
+
+      ds_negative = ds_unbatched.filter(
+          self._get_filter_by_label_value_func(self.negative_data_value)
+      )
+
+      negative_features_and_labels_zip = list(
+          zip(*ds_negative.as_numpy_iterator())
+      )
+
+      negative_features = (
+          negative_features_and_labels_zip[0]
+          if len(negative_features_and_labels_zip) == 2
+          else None
+      )
+
+      if negative_features is None:
+        # The negative features were not extracted. This can happen when the
+        # dataset elements are not tuples of features and labels. So we will use
+        # all the data for training.
+        ds_batched = train_x
+      else:
+        # The negative features were extracted. How we can proceed with creating
+        # batches of unlabeled data, to which the negative data will be added
+        # before training.
+        batch_size = (
+            self.unlabeled_record_count // self.ensemble_count
+        ) // batches_per_occ
+        ds_batched = ds_unlabeled.batch(
+            batch_size,
+            drop_remainder=False,
+        )
+      dataset_iterator = ds_batched.as_numpy_iterator()
 
     for _ in range(self.ensemble_count):
       model = self._get_model()
 
       for _ in range(batches_per_occ):
-        features, labels = dataset_iterator.next()
-        del labels  # Not needed for this task.
-        model.fit(features)
+        features, _ = dataset_iterator.next()
+        all_features = (
+            np.concatenate([features, negative_features], axis=0)
+            if negative_features is not None
+            else features
+        )
+        model.fit(all_features)
 
       self.ensemble.append(model)
 
