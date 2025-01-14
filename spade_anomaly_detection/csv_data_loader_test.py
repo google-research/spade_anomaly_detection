@@ -118,9 +118,39 @@ class CsvDataUtilsTest(tf.test.TestCase, parameterized.TestCase):
         [0.6, 0.7, ""],
         [0.6, 0.3, None],
     ]
+    self.dir = "dir1/"
     self.data1_df = pd.DataFrame(data=self.data1, columns=self.header)
-    self.csv_file1 = "/dir1/data1.csv"
+    self.csv_file1 = "{self.dir}data1.csv"
     self.csv_file1_content = self.data1_df.to_csv(header=True, index=False)
+    # Construct equivalent data with int labels.
+    self.data1_int_df = self.data1_df.copy(deep=True)
+    self.data1_int_df["y"] = self.data1_int_df["y"].replace(
+        {"1": 1, "0": 0, "-1": -1, "": -1}
+    )
+    self.csv_file1_int = f"{self.dir}data1_int.csv"
+    self.csv_file1_int_content = self.data1_int_df.to_csv(
+        header=True, index=False
+    )
+    # Construct equivalent data with 'positive' and 'negative' labels.
+    self.data1_posneg_df = self.data1_df.copy(deep=True)
+    self.data1_posneg_df["y"] = self.data1_posneg_df["y"].replace(
+        {"1": "positive", "0": "negative", "-1": "unlabeled"}
+    )
+    self.csv_file1_posneg = f"{self.dir}data1_posneg.csv"
+    self.csv_file1_posneg_content = self.data1_posneg_df.to_csv(
+        header=True, index=False
+    )
+    # Construct equivalent data with 'positive', 'negative' and blank labels.
+    self.data1_posneg_blank_label_df = self.data1_df.copy(deep=True)
+    self.data1_posneg_blank_label_df["y"] = self.data1_posneg_blank_label_df[
+        "y"
+    ].replace({"1": "positive", "0": "negative", "-1": ""})
+    self.csv_file1_posneg_blank_label = (
+        f"{self.dir}data1_posneg_blank_label.csv"
+    )
+    self.csv_file1_posneg_blank_label_content = (
+        self.data1_posneg_blank_label_df.to_csv(header=True, index=False)
+    )
 
   # Params to test: gcs_uri.
   @parameterized.named_parameters(
@@ -189,18 +219,45 @@ class CsvDataUtilsTest(tf.test.TestCase, parameterized.TestCase):
     expected_header = "x1,x2,y\n"
     self.assertEqual(header, expected_header)
 
-  def test_column_names_info_from_inputs_file_returns_column_names_info(self):
+  @parameterized.named_parameters(
+      ("labels_are_ints", 1),
+      ("labels_are_strings", 2),
+      ("labels_are_posneg_strings", 3),
+      ("labels_are_posneg_strings_with_empty_label", 4),
+  )
+  def test_column_names_info_from_inputs_file_returns_column_names_info(
+      self,
+      test_case_number,
+  ):
+    if test_case_number == 1:
+      csv_file = self.csv_file1_int
+      csv_file_content = self.csv_file1_int_content
+    elif test_case_number == 2:
+      csv_file = self.csv_file1
+      csv_file_content = self.csv_file1_content
+    elif test_case_number == 3:
+      csv_file = self.csv_file1_posneg
+      csv_file_content = self.csv_file1_posneg_content
+    elif test_case_number == 4:
+      csv_file = self.csv_file1_posneg_blank_label
+      csv_file_content = self.csv_file1_posneg_blank_label_content
+    else:
+      raise ValueError(f"Invalid test case number: {test_case_number}")
+
     with tfds.testing.MockFs() as fs:
-      fs.add_file(f"{self.csv_file1}", self.csv_file1_content)
+      fs.add_file(f"{csv_file}", csv_file_content)
       column_names_info = csv_data_loader.ColumnNamesInfo.from_inputs_file(
-          inputs_file=self.csv_file1, label_column_name="y"
+          inputs_file=csv_file,
+          label_column_name="y",
       )
     expected_column_names_info = csv_data_loader.ColumnNamesInfo(
         header="x1,x2,y",
         label_column_name="y",
-        column_names_dict=collections.OrderedDict(
-            [("x1", "FLOAT64"), ("x2", "FLOAT64"), ("y", "-1")]
-        ),
+        column_names_dict=collections.OrderedDict([
+            ("x1", "FLOAT64"),
+            ("x2", "FLOAT64"),
+            ("y", csv_data_loader._SOURCE_LABEL_DEFAULT_VALUE),
+        ]),
         num_features=2,
     )
     self.assertEqual(column_names_info, expected_column_names_info)
@@ -221,6 +278,16 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
     self.data1_df = pd.DataFrame(data=self.data1, columns=self.header)
     self.csv_file1 = f"{self.dir}data1.csv"
     self.csv_file1_content = self.data1_df.to_csv(header=True, index=False)
+    # Construct equivalent data with 'positive' and 'negative' labels.
+    self.data1_posneg_df = self.data1_df.copy(deep=True)
+    self.data1_posneg_df["y"] = self.data1_posneg_df["y"].replace(
+        {"1": "positive", "0": "negative", "-1": "unlabeled"}
+    )
+    self.csv_file1_posneg = f"{self.dir}data1_posneg.csv"
+    self.csv_file1_posneg_content = self.data1_posneg_df.to_csv(
+        header=True, index=False
+    )
+
     self.data2 = [
         [0.6, 0.7, "1"],
         [0.6, 0.3, "0"],
@@ -231,8 +298,26 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
     self.data2_df = pd.DataFrame(data=self.data2, columns=self.header)
     self.csv_file2 = f"{self.dir}data2.csv"
     self.csv_file2_content = self.data2_df.to_csv(header=True, index=False)
+    # Construct equivalent dat with 'positive' and 'negative' labels.
+    self.data2_posneg_df = self.data2_df.copy(deep=True)
+    self.data2_posneg_df["y"] = self.data2_posneg_df["y"].replace(
+        {"1": "positive", "0": "negative", "-1": "unlabeled"}
+    )
+    self.csv_file2_posneg = f"{self.dir}data2_posneg.csv"
+    self.csv_file2_posneg_content = self.data2_posneg_df.to_csv(
+        header=True, index=False
+    )
+
     self.data_df = pd.concat([self.data1_df, self.data2_df])
     # self.data_df = self.data_df.astype({"y": "str"})
+
+  def test_illegal_label_value_raises(self):
+    with self.assertRaises(ValueError):
+      csv_data_loader.CsvDataLoader.convert_str_to_int("1.0")
+    with self.assertRaises(ValueError):
+      csv_data_loader.CsvDataLoader.convert_str_to_int("this_is_positive")
+    with self.assertRaises(ValueError):
+      csv_data_loader.CsvDataLoader.convert_str_to_int(" ")  # with space.
 
   def test_get_label_remap_table(self):
     label_mapping = {"-1": -1, "0": 0, "1": 1, "": -1}
@@ -342,6 +427,13 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
   # Test the creation of a Dataset from CSV files. Only tests batch_size=1.
   @parameterized.named_parameters(
       (
+          "labels_are_posneg_strings",
+          "positive",
+          "negative",
+          "unlabeled",
+          True,
+      ),
+      (
           "labels_are_strings",
           "1",
           "0",
@@ -374,20 +466,30 @@ class CsvDataLoaderTest(tf.test.TestCase, parameterized.TestCase):
     input_path = os.path.join(tmp_dir.full_path, self.dir)
     tf.io.gfile.makedirs(input_path)
     mock_parse_gcs_uri.return_value = ("doesnt_matter", input_path, "")
-    mock_file_reader.return_value = [
-        os.path.join(tmp_dir.full_path, self.csv_file1),
-        os.path.join(tmp_dir.full_path, self.csv_file2),
-    ]
     # Write the test CSV files to temporary files. These CSV files will be
     # re-read when the Dataset is created. Their metadata will also be recorded
     # in the InputFilesMetadata object.
-    self.data1_df.to_csv(
-        os.path.join(tmp_dir.full_path, self.csv_file1),
+    if positive_data_value == "positive":
+      self.test_data1_df = self.data1_posneg_df
+      self.test_csv_file1 = self.csv_file1_posneg
+      self.test_data2_df = self.data2_posneg_df
+      self.test_csv_file2 = self.csv_file2_posneg
+    else:
+      self.test_data1_df = self.data1_df
+      self.test_csv_file1 = self.csv_file1
+      self.test_data2_df = self.data2_df
+      self.test_csv_file2 = self.csv_file2
+    mock_file_reader.return_value = [
+        os.path.join(tmp_dir.full_path, self.test_csv_file1),
+        os.path.join(tmp_dir.full_path, self.test_csv_file2),
+    ]
+    self.test_data1_df.to_csv(
+        os.path.join(tmp_dir.full_path, self.test_csv_file1),
         header=True,
         index=False,
     )
-    self.data2_df.to_csv(
-        os.path.join(tmp_dir.full_path, self.csv_file2),
+    self.test_data2_df.to_csv(
+        os.path.join(tmp_dir.full_path, self.test_csv_file2),
         header=True,
         index=False,
     )

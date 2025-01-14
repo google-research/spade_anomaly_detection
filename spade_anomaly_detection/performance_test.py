@@ -402,8 +402,8 @@ class PerformanceTestOnCSVData(tf.test.TestCase, parameterized.TestCase):
     )
 
   @parameterized.named_parameters([
-      ('labels_are_ints', False, 1, 0, -1),
-      ('labels_are_strings', True, '1', '0', '-1'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
   def test_spade_auc_performance_pnu_single_batch(
       self,
@@ -450,8 +450,8 @@ class PerformanceTestOnCSVData(tf.test.TestCase, parameterized.TestCase):
     self.assertAlmostEqual(auc, 0.9755, delta=0.02)
 
   @parameterized.named_parameters([
-      ('labels_are_ints', False, 1, 0, -1),
-      ('labels_are_strings', True, '1', '0', '-1'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
   def test_spade_auc_performance_pu_single_batch(
       self,

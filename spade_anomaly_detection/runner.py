@@ -129,7 +129,9 @@ class Runner:
 
     if not self.runner_parameters.upload_only:
       self.supervised_model_metrics: Optional[dict[str, float]] = None
-      supervised_model_parameters = supervised_model.RandomForestParameters()
+      supervised_model_parameters = supervised_model.RandomForestParameters(
+          random_seed=self.runner_parameters.random_seed
+      )
       self.supervised_model_object = supervised_model.RandomForestModel(
           supervised_model_parameters
       )
@@ -189,6 +191,7 @@ class Runner:
           batch_size=1,
       )
       input_table_statistics = stats_data_loader.get_label_thresholds()
+    logging.info('Input table statistics: %s', input_table_statistics)
     return input_table_statistics
 
   def _get_record_count_based_on_labels(self, label_value: int | str) -> int:
@@ -581,6 +584,7 @@ class Runner:
       test_tf_dataset = test_tf_dataset.batch(
           tf.cast(test_dataset_size, tf.int64)
       )
+      logging.info('Test dataset size: %s', test_dataset_size)
       test_tf_dataset = test_tf_dataset.prefetch(tf.data.AUTOTUNE)
     return test_tf_dataset
 
@@ -709,6 +713,10 @@ class Runner:
         self.test_y[self.test_y == self.int_positive_data_value] = 1
         self.test_y[self.test_y == self.int_negative_data_value] = 0
 
+    if self.test_x is not None:
+      logging.info('Test x shape: %s', self.test_x.shape)
+    if self.test_y is not None:
+      logging.info('Test y shape: %s', self.test_y.shape)
     return (train_x, train_y)
 
   def train_supervised_model(
@@ -770,7 +778,21 @@ class Runner:
       # again. Find a way to get the label counts without reading the files.
       # Assumes that data loader has already been used to read the input table.
       total_record_count = sum(train_label_counts.values())
-      logging.info('Label counts before training: %s', train_label_counts)
+      if (
+          self.runner_parameters.labeling_and_model_training_batch_size
+          and self.runner_parameters.labeling_and_model_training_batch_size
+          > total_record_count
+      ):
+        self.runner_parameters.labeling_and_model_training_batch_size = (
+            total_record_count
+        )
+        logging.info(
+            'Labeling and model training batch size is reduced to %s',
+            self.runner_parameters.labeling_and_model_training_batch_size,
+        )
+      logging.info(
+          'Label counts before supervised training: %s', train_label_counts
+      )
 
     logging.info('Total record count: %s', total_record_count)
     unlabeled_record_count = self._get_record_count_based_on_labels(
@@ -816,6 +838,7 @@ class Runner:
       )
     tf_dataset = tf_dataset.as_numpy_iterator()
 
+    unique_labels = set()
     for batch_number, (features, labels) in enumerate(tf_dataset):
       logging.info(
           'Labeling and supervised model training batch number: %s',
@@ -843,6 +866,7 @@ class Runner:
               verbose=self.runner_parameters.verbose,
           )
       )
+      unique_labels.update(set(updated_labels.ravel().tolist()))
       logging.info('Labeling completed.')
 
       # Upload batch of pseudo labels, will append when called more than once.
@@ -892,6 +916,7 @@ class Runner:
             weights=weights,
         )
     # End of pseudolabeling and supervised model training loop.
+    logging.info('Unique labels after pseudolabeling: %s', unique_labels)
 
     if not self.runner_parameters.upload_only:
       self.evaluate_model()

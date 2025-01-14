@@ -56,9 +56,9 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
         data_input_gcs_uri=None,
         output_gcs_uri='gs://test_bucket/test_folder',
         label_col_name='label',
-        positive_data_value=5,
-        negative_data_value=3,
-        unlabeled_data_value=-100,
+        positive_data_value=1,
+        negative_data_value=0,
+        unlabeled_data_value=-1,
         labels_are_strings=False,
         positive_threshold=5,
         negative_threshold=95,
@@ -416,7 +416,7 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest(name='FeaturesNotNull'):
       self.assertIsNotNone(evaluate_arguments['x'])
 
-  def test_proprocessing_inputs_supervised_model_train(self):
+  def test_preprocessing_inputs_supervised_model_train(self):
     runner_object = runner.Runner(self.runner_parameters)
     runner_object.run()
 
@@ -864,9 +864,9 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
         data_input_gcs_uri='gs://some_bucket/input_folder',
         output_gcs_uri='gs://test_bucket/test_folder',
         label_col_name='label',
-        positive_data_value=5,
-        negative_data_value=3,
-        unlabeled_data_value=-100,
+        positive_data_value=1,
+        negative_data_value=0,
+        unlabeled_data_value=-1,
         labels_are_strings=False,
         positive_threshold=5,
         negative_threshold=95,
@@ -1033,8 +1033,8 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
       self.mock_label_counts.return_value = self.label_counts
 
   @parameterized.named_parameters([
-      ('labels_are_strings_false', False, 5, 3, -100),
-      ('labels_are_strings_true', True, '5', '3', '-100'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
   def test_csv_runner_csv_data_loader_no_error(
       self,
@@ -1087,8 +1087,8 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
       )
 
   @parameterized.named_parameters([
-      ('labels_are_strings_false', False, 5, 3, -100),
-      ('labels_are_strings_true', True, '5', '3', '-100'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
   def test_csv_runner_supervised_model_fit(
       self,
@@ -1124,8 +1124,8 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
       )
 
   @parameterized.named_parameters([
-      ('labels_are_strings_false', False, 5, 3, -100),
-      ('labels_are_strings_true', True, '5', '3', '-100'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
   def test_csv_supervised_model_evaluation_no_error(
       self,
@@ -1153,10 +1153,10 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
       self.assertIsNotNone(evaluate_arguments['x'])
 
   @parameterized.named_parameters([
-      ('labels_are_strings_false', False, 5, 3, -100),
-      ('labels_are_strings_true', True, '5', '3', '-100'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
-  def test_csv_proprocessing_inputs_supervised_model_train(
+  def test_csv_preprocessing_inputs_supervised_model_train(
       self,
       labels_are_strings: bool,
       positive_data_value: str | int,
@@ -1179,8 +1179,8 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     )
 
   @parameterized.named_parameters([
-      ('labels_are_strings_false', False, 5, 3, -100),
-      ('labels_are_strings_true', True, '5', '3', '-100'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
   def test_csv_upload_only_setting_true_no_error(
       self,
@@ -1210,8 +1210,8 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
       self.mock_csv_upload.assert_called_once()
 
   @parameterized.named_parameters([
-      ('labels_are_strings_false', False, 5, 3, -100),
-      ('labels_are_strings_true', True, '5', '3', '-100'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
   def test_csv_upload_only_setting_true_throw_error_no_gcs_uri(
       self,
@@ -1237,8 +1237,8 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
       runner_object.run()
 
   @parameterized.named_parameters([
-      ('labels_are_strings_false', False, 5, 3, -100),
-      ('labels_are_strings_true', True, '5', '3', '-100'),
+      ('labels_are_strings_false', False, 1, 0, -1),
+      ('labels_are_strings_true', True, '1', '0', '-1'),
   ])
   def test_csv_upload_only_false_no_error(
       self,
@@ -1267,11 +1267,23 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest('CSVUploadCalled'):
       self.mock_csv_upload.assert_called_once()
 
-  def test_csv_runner_supervised_model_fit_with_csv_data_int_labels(self):
-    self.runner_parameters.labels_are_strings = False
-    self.runner_parameters.positive_data_value = 5
-    self.runner_parameters.negative_data_value = 3
-    self.runner_parameters.unlabeled_data_value = -100
+  @parameterized.named_parameters([
+      ('labels_are_strings_false_int_labels_1_0_minus1', False, 1, 0, -1),
+      ('labels_are_strings_true_str_labels_1_0_minus1', True, '1', '0', '-1'),
+      ('labels_are_strings_false_int_labels_6_7_minus1', False, 6, 7, -1),
+      ('labels_are_strings_true_str_labels_6_7_minus1', True, '6', '7', '-1'),
+  ])
+  def test_csv_runner_supervised_model_fit_with_csv_data_int_labels(
+      self,
+      labels_are_strings: bool,
+      positive_data_value: str | int,
+      negative_data_value: str | int,
+      unlabeled_data_value: str | int,
+  ):
+    self.runner_parameters.labels_are_strings = labels_are_strings
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
     self.runner_parameters.alpha = 0.8
     self.runner_parameters.negative_threshold = 0
 
@@ -1297,11 +1309,22 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest('CSVUploadNotCalled'):
       self.mock_csv_upload.assert_not_called()
 
-  def test_csv_runner_supervised_model_fit_with_csv_data_string_labels(self):
+  @parameterized.named_parameters([
+      ('string_labels_1', 'positive', 'negative', ''),
+      ('string_labels_2', 'positive', 'negative', 'unlabeled'),
+      ('string_labels_3', '+ve', '-ve', ''),
+      ('string_labels_4', '+ve', '-ve', 'none'),
+  ])
+  def test_csv_runner_supervised_model_fit_with_csv_data_string_labels(
+      self,
+      positive_data_value: str,
+      negative_data_value: str,
+      unlabeled_data_value: str,
+  ):
     self.runner_parameters.labels_are_strings = True
-    self.runner_parameters.positive_data_value = '5'
-    self.runner_parameters.negative_data_value = '3'
-    self.runner_parameters.unlabeled_data_value = '-100'
+    self.runner_parameters.positive_data_value = positive_data_value
+    self.runner_parameters.negative_data_value = negative_data_value
+    self.runner_parameters.unlabeled_data_value = unlabeled_data_value
     self.runner_parameters.alpha = 0.8
     self.runner_parameters.negative_threshold = 0
 

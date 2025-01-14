@@ -41,7 +41,7 @@ import tensorflow as tf
 
 
 _RANDOM_SEED: Final[int] = 42
-
+_SHUFFLE_BUFFER_SIZE: Final[int] = 10_000
 _LABEL_TYPE: Final[str] = 'INT64'
 
 
@@ -169,8 +169,11 @@ class GmmEnsemble:
         or isinstance(dataset.element_spec[0].shape[0], int)
     )
 
+  # Fit with -ve included in every batch to GMMs.
   def fit(
-      self, train_x: tf.data.Dataset, batches_per_occ: int
+      self,
+      train_x: tf.data.Dataset,
+      batches_per_occ: int,
   ) -> Sequence[mixture.GaussianMixture]:
     """Creates and fits and ensemble of one class classifiers.
 
@@ -409,5 +412,4 @@ class GmmEnsemble:
                    len(new_positive_indices))
       logging.info('Number of new negative labels: %s',
                    len(new_negative_indices))
-
     return new_features, new_labels, weights, pseudolabel_flags
