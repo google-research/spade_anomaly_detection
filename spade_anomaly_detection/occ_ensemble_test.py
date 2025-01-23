@@ -29,11 +29,12 @@
 
 """Tests for the one class classifier ensemble."""
 
-
 from absl.testing import parameterized
 import numpy as np
+
 from spade_anomaly_detection import data_loader
 from spade_anomaly_detection import occ_ensemble
+from spade_anomaly_detection import parameters
 import tensorflow as tf
 
 
@@ -49,9 +50,19 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
 
   # Params to test: n_components, ensemble_count, covariance_type.
   @parameterized.named_parameters(
-      ('components_1_ensemble_10_full', 1, 10, 'full'),
-      ('components_3_ensemble_5_full', 1, 5, 'full'),
-      ('components_3_ensemble_5_tied', 1, 5, 'tied'),
+      ('components_1_ensemble_10_full', (1,), 10, 'full'),
+      ('components_3_ensemble_5_full', (3,), 5, 'full'),
+      ('components_3_ensemble_5_tied', (3,), 5, 'tied'),
+      (
+          'components_1_2_3_ensemble_3_tied',
+          (
+              1,
+              2,
+              3,
+          ),
+          5,
+          'tied',
+      ),
   )
   def test_ensemble_training_no_error(
       self, n_components, ensemble_count, covariance_type
@@ -85,9 +96,11 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
         msg='Model count in ensemble not equal to specified ensemble size.',
     )
 
+  # Params to test: n_components, ensemble_count, covariance_type.
   @parameterized.named_parameters(
-      ('components_1_ensemble_10_full', 1, 10, 'full'),
-      ('components_1_ensemble_5_tied', 1, 5, 'tied'),
+      ('components_1_ensemble_10_full', (1,), 10, 'full'),
+      ('components_1_ensemble_5_tied', (1,), 5, 'tied'),
+      ('components_1and3_ensemble_5_tied', (1, 3), 5, 'tied'),
   )
   def test_ensemble_training_unlabeled_negative_no_error(
       self, n_components, ensemble_count, covariance_type
@@ -161,15 +174,21 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
         715,
     )
 
+  # Parameters to test: label_type, voting_strategy.
   @parameterized.named_parameters(
-      ('labels_are_integers', False),
-      ('labels_are_strings', True),
+      ('labels_are_integers_unanimous_voting', False, 'unanimous'),
+      ('labels_are_strings_unanimous_voting', True, 'unanimous'),
+      ('labels_are_integers_majority_voting', False, 'majority'),
+      ('labels_are_strings_majority_voting', True, 'majority'),
   )
-  def test_score_unlabeled_data_no_error(self, labels_are_strings: bool):
+  def test_score_unlabeled_data_no_error(
+      self, labels_are_strings: bool, voting_strategy: str
+  ):
     batches_per_occ = 1
     positive_threshold = 2
     negative_threshold = 90
     alpha = 0.8
+    alpha_negative_pseudolabels = 0.8
 
     if labels_are_strings:
       positive_data_value = b'1'
@@ -196,10 +215,11 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
       )
 
     ensemble_obj = occ_ensemble.GmmEnsemble(
-        n_components=1,
+        n_components=(1,),
         ensemble_count=5,
         positive_threshold=positive_threshold,
         negative_threshold=negative_threshold,
+        voting_strategy=parameters.VotingStrategy(voting_strategy),
     )
 
     records_per_occ = features_len // ensemble_obj.ensemble_count
@@ -227,16 +247,19 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
         )[0]
     )
 
-    updated_features, updated_labels, weights, pseudolabel_flags = (
-        ensemble_obj.pseudo_label(
-            features=features,
-            labels=labels,
-            alpha=alpha,
-            positive_data_value=positive_data_value,
-            negative_data_value=negative_data_value,
-            unlabeled_data_value=unlabeled_data_value,
-        )
+    pseudolabels_container = ensemble_obj.pseudo_label(
+        features=features,
+        labels=labels,
+        alpha=alpha,
+        alpha_negative_pseudolabels=alpha_negative_pseudolabels,
+        positive_data_value=positive_data_value,
+        negative_data_value=negative_data_value,
+        unlabeled_data_value=unlabeled_data_value,
     )
+    updated_features = pseudolabels_container.new_features
+    updated_labels = pseudolabels_container.new_labels
+    weights = pseudolabels_container.weights
+    pseudolabel_flags = pseudolabels_container.pseudolabel_flags
 
     label_count_after_labeling = len(
         np.where(
@@ -246,7 +269,20 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
     )
 
     new_label_count = label_count_after_labeling - label_count_before_labeling
-    updated_weight_count = len(np.where(weights == alpha)[0])
+    updated_weights = np.concatenate(
+        (
+            np.where(
+                (pseudolabel_flags == 1)
+                & (updated_labels == positive_data_value)
+            )[0],
+            np.where(
+                (pseudolabel_flags == 1)
+                & (updated_labels == negative_data_value)
+            )[0],
+        ),
+        axis=0,
+    )
+    updated_weight_count = len(updated_weights)
 
     with self.subTest(name='AlphaValuesLabels'):
       self.assertEqual(
@@ -270,7 +306,17 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest(name='AlphaValuesCorrespondToPseudoLabels'):
       # Note that this test will fail if the alpha value is 1.0 (the ground
       # truth weight).
-      weights_are_alpha = np.where(weights == alpha)[0]
+      positive_cond = (pseudolabel_flags == 1) & (
+          updated_labels == positive_data_value
+      )
+      negative_cond = (pseudolabel_flags == 1) & (
+          updated_labels == negative_data_value
+      )
+      weights_are_alpha_pos = np.where(positive_cond)[0]
+      weights_are_alpha_neg = np.where(negative_cond)[0]
+      weights_are_alpha = np.concatenate(
+          (weights_are_alpha_pos, weights_are_alpha_neg), axis=0
+      )
       pseudolabel_flags_are_1 = np.where(pseudolabel_flags == 1)[0]
       self.assertNDArrayNear(
           weights_are_alpha,

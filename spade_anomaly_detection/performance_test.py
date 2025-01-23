@@ -45,7 +45,7 @@ from spade_anomaly_detection import supervised_model
 import tensorflow as tf
 
 
-class PerformanceTestOnBQData(tf.test.TestCase):
+class PerformanceTestOnBQData(tf.test.TestCase, parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -72,7 +72,9 @@ class PerformanceTestOnBQData(tf.test.TestCase):
         test_label_col_name='y',
         test_dataset_holdout_fraction=None,
         test_bigquery_table_path='project_id.dataset.test_table_name',
+        voting_strategy=parameters.VotingStrategy.UNANIMOUS,
         alpha=1.0,
+        alpha_negative_pseudolabels=1.0,
         batches_per_model=1,
         max_occ_batch_size=50000,
         labeling_and_model_training_batch_size=self.orig_record_count,
@@ -272,7 +274,9 @@ class PerformanceTestOnCSVData(tf.test.TestCase, parameterized.TestCase):
         upload_only=False,
         output_bigquery_table_path='',
         data_output_gcs_uri=None,
+        voting_strategy=parameters.VotingStrategy.UNANIMOUS,
         alpha=1.0,
+        alpha_negative_pseudolabels=1.0,
         batches_per_model=1,
         max_occ_batch_size=50000,
         labeling_and_model_training_batch_size=self.label_and_train_batch_size,

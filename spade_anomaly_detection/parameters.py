@@ -32,7 +32,7 @@
 
 import dataclasses
 import enum
-from typing import Final, Optional, Sequence
+from typing import Final, Sequence
 
 
 _RANDOM_SEED: Final[int] = 42
@@ -57,6 +57,14 @@ labels_mapping: Final[dict[str | None, int]] = {
     '0': 0,
     '-1': -1,
 }
+
+
+@enum.unique
+class VotingStrategy(enum.Enum):
+  """Voting strategy for the ensemble."""
+
+  UNANIMOUS = 'unanimous'
+  MAJORITY = 'majority'
 
 
 @dataclasses.dataclass
@@ -141,9 +149,19 @@ class RunnerParameters:
     data_output_gcs_uri: Cloud Storage location used for uploading the pseudo
       labeled data as CSV. This includes features and new labels. By default, we
       will use the column names from the data_input_gcs_uri table.
-    alpha: Sample weights for weighting the loss function, only for
+    voting_strategy: The voting strategy to use when determining if a data point
+      is anomalous. By default, we use unanimous voting, meaning all the models
+      in the ensemble need to agree in order to label a data point as anomalous.
+    alpha: Sample weights for weighting the loss function, only for positively
       pseudo-labeled data from the occ ensemble. Original data that is labeled
-      will have a weight of 1.0.
+      will have a weight of 1.0. If this is provided and
+      `alpha_negative_pseudolabels` is not provided, then this value will be
+      used for both positive and negative pseudo-labeled data.
+    alpha_negative_pseudolabels: Sample weights for weighting the loss function,
+      only for negatively pseudo-labeled data from the occ ensemble. Original
+      data that is labeled will have a weight of 1.0. If this is not provided,
+      then the `alpha` value will be used for both positive and negative
+      pseudo-labeled data.
     batches_per_model: The number of batches to use in training each model in
       the ensemble. By default it is 1, meaning use 1/N of the entire dataset
       when training each model, where N is the number of OCCs in the ensemble.
@@ -162,7 +180,10 @@ class RunnerParameters:
       reduce the amount of labeled data points. By default, we use 5 one class
       classifiers.
     n_components: The number of components to use in the one class classifier
-      ensemble. By default, we use 1 component.
+      ensemble. By default, we use 1 component. Pass a single integer if all the
+      ensemble models should have the same number of components. Pass a
+      space-separated list of integers if you want to use different numbers of
+      components for each model in the ensemble.
     covariance_type: The covariance type to use in the one class classifier
       ensemble. By default, we use 'full' covariance. Note that when there are
       many components, a 'full' covariance matrix may not be suitable.
@@ -182,23 +203,25 @@ class RunnerParameters:
   negative_data_value: int | str
   unlabeled_data_value: int | str
   labels_are_strings: bool = True
-  positive_threshold: Optional[float] = None
-  negative_threshold: Optional[float] = None
-  ignore_columns: Optional[Sequence[str]] = None
-  where_statements: Optional[Sequence[str]] = None
-  test_bigquery_table_path: Optional[str] = None
-  test_label_col_name: Optional[str] = None
+  positive_threshold: float | None = None
+  negative_threshold: float | None = None
+  ignore_columns: Sequence[str] | None = None
+  where_statements: Sequence[str] | None = None
+  test_bigquery_table_path: str | None = None
+  test_label_col_name: str | None = None
   test_dataset_holdout_fraction: float = 0.2
-  data_test_gcs_uri: Optional[str] = None
+  data_test_gcs_uri: str | None = None
   upload_only: bool = False
-  output_bigquery_table_path: Optional[str] = None
-  data_output_gcs_uri: Optional[str] = None
+  output_bigquery_table_path: str | None = None
+  data_output_gcs_uri: str | None = None
+  voting_strategy: VotingStrategy = VotingStrategy.UNANIMOUS
   alpha: float = 1.0
+  alpha_negative_pseudolabels: float | None = None
   batches_per_model: int = 1
   max_occ_batch_size: int = 50000
-  labeling_and_model_training_batch_size: Optional[int] = None
+  labeling_and_model_training_batch_size: int | None = None
   ensemble_count: int = 5
-  n_components: int = 1
+  n_components: tuple[int, ...] = (1,)
   covariance_type: str = 'full'
   random_seed: int = _RANDOM_SEED
   verbose: bool = False
@@ -240,6 +263,9 @@ class RunnerParameters:
       self.positive_data_value = int(self.positive_data_value)
       self.negative_data_value = int(self.negative_data_value)
       self.unlabeled_data_value = int(self.unlabeled_data_value)
+    # If `alpha_negative_pseudolabels` is not set, set it to `alpha`.
+    if self.alpha_negative_pseudolabels is None:
+      self.alpha_negative_pseudolabels = self.alpha
 
   def _check_labels_are_strings(self) -> bool:
     """Returns True if the labels are strings."""

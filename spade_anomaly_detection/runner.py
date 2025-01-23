@@ -314,6 +314,7 @@ class Runner:
         ensemble_count=self.runner_parameters.ensemble_count,
         positive_threshold=self.runner_parameters.positive_threshold,
         negative_threshold=self.runner_parameters.negative_threshold,
+        voting_strategy=self.runner_parameters.voting_strategy,
         random_seed=self.runner_parameters.random_seed,
         verbose=self.runner_parameters.verbose,
         unlabeled_data_value=self.int_unlabeled_data_value,
@@ -470,7 +471,8 @@ class Runner:
       raise ValueError(
           'Can not use more than 100% of the data for the test '
           'set:'
-          f' test_dataset_holdout_fraction={self.runner_parameters.test_dataset_holdout_fraction}'
+          ' test_dataset_holdout_fraction='
+          f'{self.runner_parameters.test_dataset_holdout_fraction}'
       )
 
     if (
@@ -855,7 +857,7 @@ class Runner:
       )
 
       logging.info('Labeling started.')
-      updated_features, updated_labels, weights, pseudolabel_flags = (
+      pseudolabels_container: occ_ensemble.PseudolabelsContainer = (
           ensemble_object.pseudo_label(
               features=train_x,
               labels=train_y,
@@ -863,9 +865,16 @@ class Runner:
               negative_data_value=self.int_negative_data_value,
               unlabeled_data_value=self.int_unlabeled_data_value,
               alpha=self.runner_parameters.alpha,
+              alpha_negative_pseudolabels=(
+                  self.runner_parameters.alpha_negative_pseudolabels
+              ),
               verbose=self.runner_parameters.verbose,
           )
       )
+      updated_features = pseudolabels_container.new_features
+      updated_labels = pseudolabels_container.new_labels
+      weights = pseudolabels_container.weights
+      pseudolabel_flags = pseudolabels_container.pseudolabel_flags
       unique_labels.update(set(updated_labels.ravel().tolist()))
       logging.info('Labeling completed.')
 

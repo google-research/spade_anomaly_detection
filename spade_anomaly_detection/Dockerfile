@@ -1,5 +1,5 @@
 # Google Cloud's optimized Tensorflow image
-FROM gcr.io/deeplearning-platform-release/tf-cpu.2-10
+FROM us-docker.pkg.dev/deeplearning-platform-release/gcr.io/tf2-cpu.2-17.py310
 
 # Alternative Tensorflow image with GPU.
 # FROM gcr.io/deeplearning-platform-release/tf-gpu.2-10:latest

@@ -71,12 +71,14 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
         upload_only=False,
         output_bigquery_table_path='',
         data_output_gcs_uri=None,
+        voting_strategy=parameters.VotingStrategy.UNANIMOUS,
         alpha=1.0,
+        alpha_negative_pseudolabels=1.0,
         batches_per_model=1,
         max_occ_batch_size=50000,
         labeling_and_model_training_batch_size=None,
         ensemble_count=5,
-        n_components=1,
+        n_components=(1,),
         covariance_type='full',
         verbose=False,
     )
@@ -260,6 +262,7 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_runner_supervised_model_fit(self):
     self.runner_parameters.alpha = 0.8
+    self.runner_parameters.alpha_negative_pseudolabels = 0.6
     self.runner_parameters.negative_threshold = 0
 
     runner_object = runner.Runner(self.runner_parameters)
@@ -278,6 +281,10 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest('LabelWeights'):
       self.assertIn(
           self.runner_parameters.alpha,
+          supervised_model_actual_kwargs['weights'],
+      )
+      self.assertIn(
+          self.runner_parameters.alpha_negative_pseudolabels,
           supervised_model_actual_kwargs['weights'],
       )
 
@@ -373,8 +380,18 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
     example_labels = np.concatenate(
         [example_labels_pos, example_labels_neg], axis=0
     )
-    example_weights = np.repeat(
-        self.runner_parameters.alpha, len(example_labels)
+    example_weights = np.concatenate(
+        [
+            np.repeat(
+                self.runner_parameters.alpha,
+                len(example_labels_pos),
+            ),
+            np.repeat(
+                self.runner_parameters.alpha_negative_pseudolabels,
+                len(example_labels_neg),
+            ),
+        ],
+        axis=0,
     )
 
     runner_object = runner.Runner(self.runner_parameters)
@@ -437,11 +454,11 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
     # Update mock datasets with the new batch parameter
     self._create_mock_datasets()
     mock_split.return_value = ([], [])
-    mock_pseudo_label.return_value = (
-        np.empty((1, 1)),
-        np.empty((1, 1)),
-        np.empty((1, 1)),
-        np.empty((1, 1)),
+    mock_pseudo_label.return_value = occ_ensemble.PseudolabelsContainer(
+        new_features=np.empty((1, 1)),
+        new_labels=np.empty((1, 1)),
+        weights=np.empty((1, 1)),
+        pseudolabel_flags=np.empty((1, 1)),
     )
     runner_object = runner.Runner(self.runner_parameters)
 
@@ -481,11 +498,11 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
 
   @mock.patch.object(occ_ensemble.GmmEnsemble, 'pseudo_label', autospec=True)
   def test_preprocessing_pu_no_error(self, mock_pseudo_label):
-    mock_pseudo_label.return_value = (
-        np.empty((1, 1)),
-        np.empty((1, 1)),
-        np.empty((1, 1)),
-        np.empty((1, 1)),
+    mock_pseudo_label.return_value = occ_ensemble.PseudolabelsContainer(
+        new_features=np.empty((1, 1)),
+        new_labels=np.empty((1, 1)),
+        weights=np.empty((1, 1)),
+        pseudolabel_flags=np.empty((1, 1)),
     )
     self.runner_parameters.verbose = True
     self.runner_parameters.test_dataset_holdout_fraction = 0.2
@@ -519,11 +536,11 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
 
   @mock.patch.object(occ_ensemble.GmmEnsemble, 'pseudo_label', autospec=True)
   def test_preprocessing_pnu_no_error(self, mock_pseudo_label):
-    mock_pseudo_label.return_value = (
-        np.empty((1, 1)),
-        np.empty((1, 1)),
-        np.empty((1, 1)),
-        np.empty((1, 1)),
+    mock_pseudo_label.return_value = occ_ensemble.PseudolabelsContainer(
+        new_features=np.empty((1, 1)),
+        new_labels=np.empty((1, 1)),
+        weights=np.empty((1, 1)),
+        pseudolabel_flags=np.empty((1, 1)),
     )
     self.runner_parameters.verbose = True
     self.runner_parameters.test_dataset_holdout_fraction = 0.2
@@ -568,11 +585,11 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
       train_setting,
       mock_pseudo_label,
   ):
-    mock_pseudo_label.return_value = (
-        np.empty((1, 1)),
-        np.empty((1, 1)),
-        np.empty((1, 1)),
-        np.empty((1, 1)),
+    mock_pseudo_label.return_value = occ_ensemble.PseudolabelsContainer(
+        new_features=np.empty((1, 1)),
+        new_labels=np.empty((1, 1)),
+        weights=np.empty((1, 1)),
+        pseudolabel_flags=np.empty((1, 1)),
     )
     self.runner_parameters.verbose = True
     self.runner_parameters.train_setting = train_setting
@@ -879,7 +896,9 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
         upload_only=False,
         output_bigquery_table_path='',
         data_output_gcs_uri=None,
-        alpha=1.0,
+        voting_strategy=parameters.VotingStrategy.UNANIMOUS,
+        alpha=0.8,
+        alpha_negative_pseudolabels=0.6,
         batches_per_model=1,
         max_occ_batch_size=50000,
         labeling_and_model_training_batch_size=None,
@@ -1102,6 +1121,7 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     self.runner_parameters.negative_data_value = negative_data_value
     self.runner_parameters.unlabeled_data_value = unlabeled_data_value
     self.runner_parameters.alpha = 0.8
+    self.runner_parameters.alpha_negative_pseudolabels = 0.6
     self.runner_parameters.negative_threshold = 0
 
     runner_object = runner.Runner(self.runner_parameters)
@@ -1120,6 +1140,10 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest('LabelWeights'):
       self.assertIn(
           self.runner_parameters.alpha,
+          supervised_model_actual_kwargs['weights'],
+      )
+      self.assertIn(
+          self.runner_parameters.alpha_negative_pseudolabels,
           supervised_model_actual_kwargs['weights'],
       )
 
@@ -1285,6 +1309,7 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     self.runner_parameters.negative_data_value = negative_data_value
     self.runner_parameters.unlabeled_data_value = unlabeled_data_value
     self.runner_parameters.alpha = 0.8
+    self.runner_parameters.alpha_negative_pseudolabels = 0.6
     self.runner_parameters.negative_threshold = 0
 
     runner_object = runner.Runner(self.runner_parameters)
@@ -1303,6 +1328,10 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest('LabelWeights'):
       self.assertIn(
           self.runner_parameters.alpha,
+          supervised_model_actual_kwargs['weights'],
+      )
+      self.assertIn(
+          self.runner_parameters.alpha_negative_pseudolabels,
           supervised_model_actual_kwargs['weights'],
       )
 
@@ -1326,6 +1355,7 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     self.runner_parameters.negative_data_value = negative_data_value
     self.runner_parameters.unlabeled_data_value = unlabeled_data_value
     self.runner_parameters.alpha = 0.8
+    self.runner_parameters.alpha_negative_pseudolabels = 0.6
     self.runner_parameters.negative_threshold = 0
 
     runner_object = runner.Runner(self.runner_parameters)
@@ -1344,6 +1374,10 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     with self.subTest('LabelWeights'):
       self.assertIn(
           self.runner_parameters.alpha,
+          supervised_model_actual_kwargs['weights'],
+      )
+      self.assertIn(
+          self.runner_parameters.alpha_negative_pseudolabels,
           supervised_model_actual_kwargs['weights'],
       )
 

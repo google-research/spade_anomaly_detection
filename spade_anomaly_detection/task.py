@@ -250,14 +250,41 @@ _DATA_OUTPUT_GCS_URI = flags.DEFINE_string(
     ),
 )
 
+_VOTING_STRATEGY = flags.DEFINE_enum_class(
+    "voting_strategy",
+    default="UNANIMOUS",
+    required=False,
+    enum_class=parameters.VotingStrategy,
+    help=(
+        "The voting strategy to use when combining the labels from the ensemble"
+        " of one class classifiers. The default is unanimous, which requires "
+        "all models to agree on a label in order to be considered anomalous."
+    ),
+)
+
 _ALPHA = flags.DEFINE_float(
     "alpha",
     default=1.0,
     required=False,
     help=(
-        "Sample weights for weighting the loss function, only for"
+        "Sample weights for weighting the loss function, only for positively"
         " pseudo-labeled data from the occ ensemble. Original data that is"
-        " labeled will have a weight of 1.0."
+        " labeled will have a weight of 1.0. If this is provided and"
+        " `alpha_negative_pseudolabels` is not provided, then this value will"
+        " be used for both positive and negative pseudo-labeled data."
+    ),
+)
+
+_ALPHA_NEGATIVE_PSEUDOLABELS = flags.DEFINE_float(
+    "alpha_negative_pseudolabels",
+    default=None,
+    required=False,
+    help=(
+        "Sample weights for weighting the loss function, only for negatively"
+        " pseudo-labeled data from the occ ensemble. Original data that is"
+        " labeled will have a weight of 1.0. If this is not provided,"
+        " then the `alpha` value will be used for both positive and "
+        "negative pseudo-labeled data."
     ),
 )
 
@@ -310,13 +337,16 @@ _ENSEMBLE_COUNT = flags.DEFINE_integer(
     ),
 )
 
-_N_COMPONENTS = flags.DEFINE_integer(
+_N_COMPONENTS = flags.DEFINE_string(
     "n_components",
-    default=1,
+    default="1",
     required=False,
     help=(
         "The number of components to use in the one class classifier ensemble. "
-        "By default, we use 1 component."
+        "By default, we use 1 component. Pass a single integer if all the "
+        "ensemble models should have the same number of components. Pass a "
+        "space-separated list of integers if you want to use different numbers "
+        "of components for each model in the ensemble."
     ),
 )
 
@@ -372,6 +402,15 @@ def main(argv: Sequence[str]) -> None:
 
   _set_seeds(seed=_RANDOM_SEED)
 
+  n_components = tuple(
+      [int(dim.strip()) for dim in _N_COMPONENTS.value.split()]
+  )
+  assert len(n_components) in [1, _ENSEMBLE_COUNT.value], (
+      "The number of n_components must be 1 or equal to the ensemble count. "
+      f"Found {len(n_components)} n_components for an ensemble count of "
+      f"{_ENSEMBLE_COUNT.value}"
+  )
+
   runner_parameters = parameters.RunnerParameters(
       train_setting=_TRAIN_SETTING.value,
       input_bigquery_table_path=_INPUT_BIGQUERY_TABLE_PATH.value,
@@ -393,12 +432,14 @@ def main(argv: Sequence[str]) -> None:
       upload_only=_UPLOAD_ONLY.value,
       output_bigquery_table_path=_OUTPUT_BIGQUERY_TABLE_PATH.value,
       data_output_gcs_uri=_DATA_OUTPUT_GCS_URI.value,
+      voting_strategy=_VOTING_STRATEGY.value,
       alpha=_ALPHA.value,
+      alpha_negative_pseudolabels=_ALPHA_NEGATIVE_PSEUDOLABELS.value,
       batches_per_model=_BATCHES_PER_MODEL.value,
       max_occ_batch_size=_MAX_OCC_BATCH_SIZE.value,
       labeling_and_model_training_batch_size=_BATCH_SIZE.value,
       ensemble_count=_ENSEMBLE_COUNT.value,
-      n_components=_N_COMPONENTS.value,
+      n_components=n_components,
       covariance_type=_COVARIANCE_TYPE.value,
       random_seed=_RANDOM_SEED,
       verbose=_VERBOSE.value,

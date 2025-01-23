@@ -32,12 +32,32 @@
 # Using typing instead of collections due to Vertex training containers
 # not supporting them.
 
+import dataclasses
 from typing import Final, MutableMapping, Optional, Sequence
 
 from absl import logging
 import numpy as np
 from sklearn import mixture
+from spade_anomaly_detection import parameters
 import tensorflow as tf
+
+
+@dataclasses.dataclass
+class PseudolabelsContainer:
+  """Container to hold the outputs of the pseudolabeling process.
+
+  Attributes:
+    new_features: np.ndarray of features for the new pseudolabeled data.
+    new_labels: np.ndarray of labels for the new pseudolabeled data.
+    weights: np.ndarray of weights for the new pseudolabeled data.
+    pseudolabel_flags: np.ndarray of flags indicating whether the data point is
+      ground truth or pseudolabeled.
+  """
+
+  new_features: np.ndarray
+  new_labels: np.ndarray
+  weights: np.ndarray
+  pseudolabel_flags: np.ndarray
 
 
 _RANDOM_SEED: Final[int] = 42
@@ -76,6 +96,9 @@ class GmmEnsemble:
       precision when raising this value, and an increase in recall when lowering
       it. Equavalent to saying the given data point needs to be X percentile or
       greater in order to be considered anomalous.
+    voting_strategy: The voting strategy to use when determining if a data point
+      is anomalous. By default, we use unanimous voting, meaning all the models
+      in the ensemble need to agree in order to label a data point as anomalous.
     unlabeled_record_count: The number of unlabeled records in the dataset.
     negative_record_count: The number of negative records in the dataset.
     unlabeled_data_value: The value used in the label column to denote unlabeled
@@ -90,13 +113,16 @@ class GmmEnsemble:
   # TODO(b/247116870): Create dataclass when another OCC is added.
   def __init__(
       self,
-      n_components: int = 1,
+      n_components: tuple[int, ...] = (1,),
       covariance_type: str = 'full',
       init_params: str = 'kmeans',
       max_iter: int = 100,
       ensemble_count: int = 5,
       positive_threshold: float = 1.0,
       negative_threshold: float = 95.0,
+      voting_strategy: parameters.VotingStrategy = (
+          parameters.VotingStrategy.UNANIMOUS
+      ),
       random_seed: int = _RANDOM_SEED,
       unlabeled_record_count: int | None = None,
       negative_record_count: int | None = None,
@@ -111,6 +137,7 @@ class GmmEnsemble:
     self.ensemble_count = ensemble_count
     self.positive_threshold = positive_threshold
     self.negative_threshold = negative_threshold
+    self.voting_strategy = voting_strategy
     self._random_seed = random_seed
     self.unlabeled_record_count = unlabeled_record_count
     self.negative_record_count = negative_record_count
@@ -122,14 +149,21 @@ class GmmEnsemble:
 
     self._warm_start = False
 
-  def _get_model(self) -> mixture.GaussianMixture:
+  def _get_model(self, idx: int) -> mixture.GaussianMixture:
     """Instantiates a Gaussian mixture model.
+
+    Args:
+      idx: The index of the model in the ensemble.
 
     Returns:
       Gaussian mixture model with class attributes.
     """
     return mixture.GaussianMixture(
-        n_components=self.n_components,
+        n_components=(
+            self.n_components[idx]
+            if len(self.n_components) == self.ensemble_count
+            else self.n_components[0]
+        ),
         covariance_type=self.covariance_type,
         init_params=self.init_params,
         warm_start=self._warm_start,
@@ -249,8 +283,8 @@ class GmmEnsemble:
         )
       dataset_iterator = ds_batched.as_numpy_iterator()
 
-    for _ in range(self.ensemble_count):
-      model = self._get_model()
+    for idx in range(self.ensemble_count):
+      model = self._get_model(idx=idx)
 
       for _ in range(batches_per_occ):
         features, _ = dataset_iterator.next()
@@ -268,6 +302,26 @@ class GmmEnsemble:
     self._warm_start = False
 
     return self.ensemble
+
+  def _vote(self, model_scores: np.ndarray) -> np.ndarray:
+    """Votes on whether a data point is anomalous or not.
+
+    Args:
+      model_scores: The scores for each model in the ensemble for a given data
+        point. Can be the positive score or the negative score.
+
+    Returns:
+      True if the data point is anomalous, False otherwise.
+    """
+    if self.voting_strategy == parameters.VotingStrategy.UNANIMOUS:
+      return model_scores == self.ensemble_count
+    elif self.voting_strategy == parameters.VotingStrategy.MAJORITY:
+      return model_scores > self.ensemble_count // 2
+    else:
+      raise ValueError(
+          f'Unsupported voting strategy: {self.voting_strategy}. Supported'
+          ' strategies are UNANIMOUS and MAJORITY.'
+      )
 
   def _score_unlabeled_data(
       self,
@@ -310,8 +364,8 @@ class GmmEnsemble:
       model_scores_pos += binary_scores_pos
       model_scores_neg += binary_scores_neg
 
-    positive_indices = np.where(model_scores_pos == self.ensemble_count)[0]
-    negative_indices = np.where(model_scores_neg == self.ensemble_count)[0]
+    positive_indices = np.where(self._vote(model_scores_pos))[0]
+    negative_indices = np.where(self._vote(model_scores_neg))[0]
 
     return {
         'positive_indices': positive_indices,
@@ -326,8 +380,9 @@ class GmmEnsemble:
       negative_data_value: str | int | None,
       unlabeled_data_value: str | int,
       alpha: float = 1.0,
+      alpha_negative_pseudolabels: float = 1.0,
       verbose: Optional[bool] = False,
-  ) -> Sequence[np.ndarray]:
+  ) -> PseudolabelsContainer:
     """Labels unlabeled data using the trained ensemble of OCCs.
 
     Args:
@@ -341,16 +396,18 @@ class GmmEnsemble:
         data - data points that are not anomalous.
       unlabeled_data_value: The value used in the label column to denote
         unlabeled data.
-      alpha: This value is used to adjust the influence of the pseudo labeled
-        data in training the supervised model.
+      alpha: This value is used to adjust the influence of the positively pseudo
+        labeled data in training the supervised model.
+      alpha_negative_pseudolabels: This value is used to adjust the influence of
+        the negatively pseudo labeled data in training the supervised model.
       verbose: Chooses the amount of logging info to display. This can be useful
         when debugging model performance.
 
     Returns:
-      A sequence including updated features (features for which we now have
+      A container including updated features (features for which we now have
       labels for), updated labels (includes pseudo labeled positive and negative
       values, as well as ground truth), the weights (correct alpha values)
-      for the new pseudo labeled data points, and a binary flag that indicates
+      for the new pseudo labeled data points, a binary flag that indicates
       whether the data point is newly pseudolabeled, or ground truth. Labels are
       in the format of 1 for positive and 0 for negative. Flag is 1 for
       pseudo-labeled and 0 for ground truth.
@@ -390,13 +447,15 @@ class GmmEnsemble:
         ],
         axis=0,
     )
-    weights = np.concatenate([
-        np.repeat(alpha, len(new_positive_indices)),
-        np.repeat(alpha, len(new_negative_indices)),
-        np.ones([len(original_positive_idx)]),
-        np.ones([len(original_negative_idx)])
-    ],
-                             axis=0)
+    weights = np.concatenate(
+        [
+            np.repeat(alpha, len(new_positive_indices)),
+            np.repeat(alpha_negative_pseudolabels, len(new_negative_indices)),
+            np.ones([len(original_positive_idx)]),
+            np.ones([len(original_negative_idx)]),
+        ],
+        axis=0,
+    )
     pseudolabel_flags = np.concatenate(
         [
             np.ones(len(new_positive_indices)),
@@ -412,4 +471,10 @@ class GmmEnsemble:
                    len(new_positive_indices))
       logging.info('Number of new negative labels: %s',
                    len(new_negative_indices))
-    return new_features, new_labels, weights, pseudolabel_flags
+
+    return PseudolabelsContainer(
+        new_features=new_features,
+        new_labels=new_labels,
+        weights=weights,
+        pseudolabel_flags=pseudolabel_flags,
+    )

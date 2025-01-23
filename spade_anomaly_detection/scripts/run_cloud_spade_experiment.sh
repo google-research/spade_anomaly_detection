@@ -35,7 +35,7 @@ OUTPUT_BIGQUERY_TABLE_PATH=${5:-"${PROJECT_ID}.[bq-dataset].[bq-output-table]"}
 DATA_OUTPUT_GCS_URI=${6:-""}
 OUTPUT_GCS_URI=${7:-"gs://[gcs-bucket]/[model-folder]"}
 LABEL_COL_NAME=${8:-"y"}
-# The label column is of type float, these must match in order for array
+# The label column is of type string, these must match in order for array
 # filtering to work correctly.
 POSITIVE_DATA_VALUE=${9:-"1"}
 NEGATIVE_DATA_VALUE=${10:-"0"}
@@ -46,27 +46,31 @@ TEST_BIGQUERY_TABLE_PATH=${14:-"${PROJECT_ID}.[bq-dataset].[bq-test-table]"}
 TEST_DATASET_HOLDOUT_FRACTION=${15:-"0"}
 DATA_TEST_GCS_URI=${16:-""}
 TEST_LABEL_COL_NAME=${17:-"y"}
-ALPHA=${18:-"1.0"}
-BATCHES_PER_MODEL=${19:-"1"}
-ENSEMBLE_COUNT=${20:-"5"}
-N_COMPONENTS=${21:-"1"}
-COVARIANCE_TYPE=${22:-"full"}
-MAX_OCC_BATCH_SIZE=${23:-"50000"}
-LABELING_AND_MODEL_TRAINING_BATCH_SIZE=${24:-"100000"}
-VERBOSE=${25:-"True"}
-UPLOAD_ONLY=${26:-"False"}
+VOTING_STRATEGY=${18:-"UNANIMOUS"}
+ALPHA=${19:-"1.0"}
+ALPHA_NEGATIVE_PSEUDOLABELS=${20:-"1.0"}
+BATCHES_PER_MODEL=${21:-"1"}
+ENSEMBLE_COUNT=${22:-"5"}
+N_COMPONENTS=${23:-"1"}
+# N_COMPONENTS=${23:-"1,3,5,7,9"}
+COVARIANCE_TYPE=${24:-"full"}
+MAX_OCC_BATCH_SIZE=${25:-"50000"}
+LABELING_AND_MODEL_TRAINING_BATCH_SIZE=${26:-"100000"}
+LABELS_ARE_STRINGS=${27:-"True"}
+VERBOSE=${28:-"True"}
+UPLOAD_ONLY=${29:-"False"}
 
 # Give a unique name to your training job.
 TRIAL_NAME="spade_${USER}_${DATETIME}"
 
 # Image name and location
 IMAGE_NAME="spade"
-IMAGE_TAG=${27:-"latest-oss"}
+IMAGE_TAG=${30:-"latest-oss"}
 # Project image (use this for testing)
 IMAGE_URI="us-docker.pkg.dev/${PROJECT_ID}/spade/${IMAGE_NAME}:${IMAGE_TAG}"
 echo "IMAGE_URI = ${IMAGE_URI}"
 
-BUILD=${28:-"TRUE"}
+BUILD=${31:-"TRUE"}
 
 if [[ "${BUILD}" == "TRUE" ]]; then
   /bin/bash ./scripts/build_and_push_image.sh "${IMAGE_TAG}" "${IMAGE_NAME}" "${PROJECT_ID}" || exit
@@ -99,9 +103,11 @@ gcloud ai custom-jobs create \
   --args=--data_test_gcs_uri="${DATA_TEST_GCS_URI}" \
   --args=--test_label_col_name="${TEST_LABEL_COL_NAME}" \
   --args=--alpha="${ALPHA}" \
+  --args=--alpha_negative_pseudolabels="${ALPHA_NEGATIVE_PSEUDOLABELS}" \
   --args=--batches_per_model="${BATCHES_PER_MODEL}" \
   --args=--ensemble_count="${ENSEMBLE_COUNT}" \
-  --args=--n_components="${N_COMPONENTS}" \
+  --args=--voting_strategy="${VOTING_STRATEGY}" \
+  --args=--n_components="${N_COMPONENTS//,/ }" \
   --args=--covariance_type="${COVARIANCE_TYPE}" \
   --args=--max_occ_batch_size="${MAX_OCC_BATCH_SIZE}" \
   --args=--labeling_and_model_training_batch_size="${LABELING_AND_MODEL_TRAINING_BATCH_SIZE}" \

@@ -78,6 +78,8 @@ The metric reported by the pipeline is model [AUC](https://developers.google.com
 
 <span style="color:red;background-color:lightgrey">label_col_name (string)</span>: The name of the label column in the input BigQuery table.
 
+<span style="color:red;background-color:lightgrey">labels_are_strings</span>: Whether the labels in the input dataset are strings or integers.
+
 <span style="color:red;background-color:lightgrey">positive_data_value (integer)</span>: The value used in the label column to denote positive data - data points that are anomalous. “1” can be used, for example.
 
 <span style="color:red;background-color:lightgrey">negative_data_value  (integer)</span>: The value used in the label column to denote negative data - data points that are not anomalous. “0” can be used, for example.
@@ -99,17 +101,21 @@ one class classifier ensemble to label a point as negative. The higher this valu
 
 <span style="color:yellow;background-color:lightgrey">data_test_gcs_uri</span>: Cloud Storage location to store the CSV data to be used for evaluating the supervised model. Note that the positive and negative label values must also be the same in this testing set. It is okay to have your test labels in that form, or use 1 for positive and 0 for negative. Use exactly one of BigQuery locations or GCS locations.
 
-<span style="color:yellow;background-color:lightgrey">upload_only</span>: Use this setting in conjunction with `output_bigquery_table_path` or `data_output_gcs_uri`. When `True`, the algorithm will just upload the pseudo labeled data to the specified table, and will skip training a supervised model. When set to `False`, the algorithm will also train a supervised model and upload it to a GCS location. Default is `False`.
+<span style="color:yellow;background-color:lightgrey">upload_only (bool)</span>: Use this setting in conjunction with `output_bigquery_table_path` or `data_output_gcs_uri`. When `True`, the algorithm will just upload the pseudo labeled data to the specified table, and will skip training a supervised model. When set to `False`, the algorithm will also train a supervised model and upload it to a GCS location. Default is `False`.
 
 <span style="color:yellow;background-color:lightgrey">output_bigquery_table_path</span>: A complete BigQuery path in the form of 'project.dataset.table' to be used for uploading the pseudo labeled data. This includes features and new labels. By default, we will use the column names from the input_bigquery_table_path BigQuery table. Use exactly one of BigQuery locations or GCS locations.
 
 <span style="color:yellow;background-color:lightgrey">data_output_gcs_uri</span>: Cloud Storage location used for uploading the pseudo labeled data as CSV. This includes features and new labels. By default, we will use the column names from the data_input_gcs_uri table. Use exactly one of BigQuery locations or GCS locations.
 
-<span style="color:yellow;background-color:lightgrey">alpha (float)</span>: Sample weights for weighting the loss function, only for pseudo-labeled data from the occ ensemble. Original data that is labeled will have a weight of 1.0. By default, we use alpha = 1.0.
+<span style="color:yellow;background-color:lightgrey">voting_strategy (bool)</span>: The voting strategy to use when determining if a data point is anomalous. By default, we use unanimous voting, meaning all the models in the ensemble need to agree in order to label a data point as anomalous.
+
+<span style="color:yellow;background-color:lightgrey">alpha (float)</span>: Sample weights for weighting the loss function, only for positively pseudo-labeled data from the occ ensemble. Original data that is labeled will have a weight of 1.0. If this is provided and `alpha_negative_pseudolabels` is not provided, then this value will be used for both positive and negative pseudo-labeled data. By default, we use alpha = 1.0.
+
+<span style="color:yellow;background-color:lightgrey">alpha_negative_pseudolabels (float)</span>: Sample weights for weighting the loss function, only for negatively pseudo-labeled data from the occ ensemble. Original data that is labeled will have a weight of 1.0. If this is not provided, then the `alpha` value will be used for both positive and negative pseudo-labeled data. By default, we use alpha_negative_pseudolabels = 1.0.
 
 <span style="color:yellow;background-color:lightgrey">ensemble_count</span>: Integer representing the number of one class classifiers in the ensemble used for pseudo labeling unlabeled data points. The more models in the ensemble, the less likely it is for all the models to gain consensus, and thus will reduce the amount of labeled data points. By default, we use 5 one class classifiers.
 
-<span style="color:yellow;background-color:lightgrey">n_components</span>: Integer representing the number of components to use in the one class classifier ensemble. By default, we use 1 component.
+<span style="color:yellow;background-color:lightgrey">n_components</span>: The number of components to use in the one class classifier ensemble. By default, we use 1 component. Pass a single integer if all the ensemble models should have the same number of components. Pass a space-separated list of integers if you want to use different numbers of components for each model in the ensemble. By default, we use 1 component.
 
 <span style="color:yellow;background-color:lightgrey">covariance_type</span>: String representing the covariance type to use in the one class classifier ensemble. By default, we use 'full' covariance. Note that when there are many components, a 'full' covariance matrix may not be suitable.
 
@@ -189,7 +195,7 @@ OUTPUT_BIGQUERY_TABLE_PATH=${5:-"${PROJECT_ID}.[bq-dataset].[bq-output-table]"}
 DATA_OUTPUT_GCS_URI=${6:-""}
 OUTPUT_GCS_URI=${7:-"gs://[gcs-bucket]/[model-folder]"}
 LABEL_COL_NAME=${8:-"y"}
-# The label column is of type float, these must match in order for array
+# The label column is of type string, these must match in order for array
 # filtering to work correctly.
 POSITIVE_DATA_VALUE=${9:-"1"}
 NEGATIVE_DATA_VALUE=${10:-"0"}
@@ -197,12 +203,22 @@ UNLABELED_DATA_VALUE=${11:-"-1"}
 POSITIVE_THRESHOLD=${12:-".1"}
 NEGATIVE_THRESHOLD=${13:-"95"}
 TEST_BIGQUERY_TABLE_PATH=${14:-"${PROJECT_ID}.[bq-dataset].[bq-test-table]"}
-DATA_TEST_GCS_URI=${15:-""}
-TEST_LABEL_COL_NAME=${16:-"y"}
-ALPHA=${17:-"1.0"}
-ENSEMBLE_COUNT=${19:-"5"}
-VERBOSE=${22:-"True"}
-UPLOAD_ONLY=${23:-"False"}
+TEST_DATASET_HOLDOUT_FRACTION=${15:-"0"}
+DATA_TEST_GCS_URI=${16:-""}
+TEST_LABEL_COL_NAME=${17:-"y"}
+VOTING_STRATEGY=${18:-"UNANIMOUS"}
+ALPHA=${19:-"1.0"}
+ALPHA_NEGATIVE_PSEUDOLABELS=${20:-"1.0"}
+BATCHES_PER_MODEL=${21:-"1"}
+ENSEMBLE_COUNT=${22:-"5"}
+N_COMPONENTS=${23:-"1"}
+# N_COMPONENTS=${23:-"1,3,5,7,9"}
+COVARIANCE_TYPE=${24:-"full"}
+MAX_OCC_BATCH_SIZE=${25:-"50000"}
+LABELING_AND_MODEL_TRAINING_BATCH_SIZE=${26:-"100000"}
+LABELS_ARE_STRINGS=${27:-"True"}
+VERBOSE=${28:-"True"}
+UPLOAD_ONLY=${29:-"False"}
 
 IMAGE_URI="us-docker.pkg.dev/[project_id]/spade-anomaly-detection/spade:latest"
 

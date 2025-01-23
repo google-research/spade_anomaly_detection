@@ -73,6 +73,7 @@ class DataLoaderTest(tf.test.TestCase, parameterized.TestCase):
         output_bigquery_table_path='',
         data_output_gcs_uri='',
         alpha=1.0,
+        alpha_negative_pseudolabels=1.0,
         batches_per_model=1,
         labeling_and_model_training_batch_size=None,
         ensemble_count=5,
