@@ -813,8 +813,8 @@ class RunnerBQTest(tf.test.TestCase, parameterized.TestCase):
     # batches from the entire dataset.
     self.runner_parameters.labeling_and_model_training_batch_size = 50
 
-    runner_object = runner.Runner(self.runner_parameters)
     self._create_mock_datasets()
+    runner_object = runner.Runner(self.runner_parameters)
 
     runner_object.run()
 
