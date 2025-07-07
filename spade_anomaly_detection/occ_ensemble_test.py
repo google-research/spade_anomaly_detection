@@ -1,4 +1,4 @@
-# Copyright 2024 The spade_anomaly_detection Authors.
+# Copyright 2025 The spade_anomaly_detection Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -73,6 +73,9 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
         n_components=n_components,
         ensemble_count=ensemble_count,
         covariance_type=covariance_type,
+        # `reg_covar` is set to a value greater than the default value of 1e-6
+        # to avoid numerical stability issues in the unit test.
+        reg_covar=1e-5,
     )
 
     tf_dataset = data_loader.load_tf_dataset_from_csv(

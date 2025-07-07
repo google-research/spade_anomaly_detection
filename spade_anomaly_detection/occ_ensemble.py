@@ -1,4 +1,4 @@
-# Copyright 2024 The spade_anomaly_detection Authors.
+# Copyright 2025 The spade_anomaly_detection Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -83,6 +83,9 @@ class GmmEnsemble:
       entire training dataset. This will be used to score samples and classify
       them as anomalies. Note that the more models in the ensemble, the harder
       it is to gain consensus.
+    reg_covar: Non-negative regularization added to the diagonal of covariance.
+      Leave at the default value unless the dataset is very small and there are
+      numerical instabilities during fitting.
     positive_threshold: Float between [0, 100] used as the percentile for the
       one class classifier ensemble to label a point as positive. The closer to
       0 this value is set, the less positive data will be labeled. However, we
@@ -118,6 +121,7 @@ class GmmEnsemble:
       init_params: str = 'kmeans',
       max_iter: int = 100,
       ensemble_count: int = 5,
+      reg_covar: float = 1e-6,
       positive_threshold: float = 1.0,
       negative_threshold: float = 95.0,
       voting_strategy: parameters.VotingStrategy = (
@@ -135,6 +139,7 @@ class GmmEnsemble:
     self.init_params = init_params
     self.max_iter = max_iter
     self.ensemble_count = ensemble_count
+    self._reg_covar = reg_covar
     self.positive_threshold = positive_threshold
     self.negative_threshold = negative_threshold
     self.voting_strategy = voting_strategy
@@ -169,6 +174,7 @@ class GmmEnsemble:
         warm_start=self._warm_start,
         max_iter=self.max_iter,
         random_state=self._random_seed,
+        reg_covar=self._reg_covar,
     )
 
   def _get_filter_by_label_value_func(self, label_column_filter_value: int):

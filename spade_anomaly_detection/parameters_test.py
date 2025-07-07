@@ -1,4 +1,4 @@
-# Copyright 2024 The spade_anomaly_detection Authors.
+# Copyright 2025 The spade_anomaly_detection Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ import tensorflow as tf
 
 class ParametersTest(tf.test.TestCase):
 
-  def test_none_required_parameter_raises(self):
+  def test_incorrect_parameter_raises(self):
     with self.subTest(name='two_input_sources_specified'):
       with self.assertRaises(ValueError):
         _ = parameters.RunnerParameters(
@@ -63,6 +63,20 @@ class ParametersTest(tf.test.TestCase):
             negative_data_value='0',
             unlabeled_data_value='-1',
             voting_strategy=parameters.VotingStrategy.UNANIMOUS,
+        )
+    with self.subTest(name='reg_covar_not_positive'):
+      with self.assertRaises(ValueError):
+        _ = parameters.RunnerParameters(
+            train_setting=parameters.TrainSetting.PNU,
+            input_bigquery_table_path='some_project.some_dataset.some_table',
+            data_input_gcs_uri=None,
+            output_gcs_uri='gs://some_bucket/some_path',
+            label_col_name='y',
+            positive_data_value='1',
+            negative_data_value='0',
+            unlabeled_data_value='-1',
+            voting_strategy=parameters.VotingStrategy.UNANIMOUS,
+            reg_covar=-1e-6,
         )
 
   def test_equal_data_value_parameter_raises(self):

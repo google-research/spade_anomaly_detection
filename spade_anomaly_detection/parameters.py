@@ -1,4 +1,4 @@
-# Copyright 2024 The spade_anomaly_detection Authors.
+# Copyright 2025 The spade_anomaly_detection Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -187,6 +187,9 @@ class RunnerParameters:
     covariance_type: The covariance type to use in the one class classifier
       ensemble. By default, we use 'full' covariance. Note that when there are
       many components, a 'full' covariance matrix may not be suitable.
+    reg_covar: Non-negative regularization added to the diagonal of covariance.
+      Leave at the default value unless the dataset is very small and there are
+      numerical instabilities during fitting.
     random_seed: The random seed to use for all random number generators in the
       algorithm.
     verbose: The amount of console logs to display during training. Use False to
@@ -223,6 +226,10 @@ class RunnerParameters:
   ensemble_count: int = 5
   n_components: tuple[int, ...] = (1,)
   covariance_type: str = 'full'
+  # In normal use, do not change 'reg_covar'. If your dataset is very small,
+  # then setting it to a larger value may improve the numerical stability of
+  # your model fitting.
+  reg_covar: float = 1e-6
   random_seed: int = _RANDOM_SEED
   verbose: bool = False
 
@@ -258,6 +265,9 @@ class RunnerParameters:
           '`labels_are_strings` must be True if `positive_data_value`, '
           '`negative_data_value` and `unlabeled_data_value` are strings.'
       )
+    if self.reg_covar <= 0:
+      raise ValueError('`reg_covar` must be positive.')
+
     # Adjust the labels if needed.
     if not self.labels_are_strings:
       self.positive_data_value = int(self.positive_data_value)
