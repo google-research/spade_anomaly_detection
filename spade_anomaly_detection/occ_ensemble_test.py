@@ -146,37 +146,6 @@ class OccEnsembleTest(tf.test.TestCase, parameterized.TestCase):
         msg='Model count in ensemble not equal to specified ensemble size.',
     )
 
-  def test_dataset_filtering(self):
-    positive_data_value = 1
-    negative_data_value = 0
-    unlabeled_data_value = -1
-    gmm_ensemble = occ_ensemble.GmmEnsemble(n_components=1, ensemble_count=10)
-
-    tf_dataset = data_loader.load_tf_dataset_from_csv(
-        dataset_name='covertype_pnu_100000', batch_size=None
-    )
-    tf_unlabeled_dataset = tf_dataset.filter(
-        gmm_ensemble._get_filter_by_label_value_func(unlabeled_data_value)
-    )
-    tf_negative_dataset = tf_dataset.filter(
-        gmm_ensemble._get_filter_by_label_value_func(negative_data_value)
-    )
-    tf_positive_dataset = tf_dataset.filter(
-        gmm_ensemble._get_filter_by_label_value_func(positive_data_value)
-    )
-    self.assertEqual(
-        tf_unlabeled_dataset.reduce(0, lambda x, _: x + 1).numpy(),
-        94950,
-    )
-    self.assertEqual(
-        tf_negative_dataset.reduce(0, lambda x, _: x + 1).numpy(),
-        4333,
-    )
-    self.assertEqual(
-        tf_positive_dataset.reduce(0, lambda x, _: x + 1).numpy(),
-        715,
-    )
-
   # Parameters to test: label_type, voting_strategy.
   @parameterized.named_parameters(
       ('labels_are_integers_unanimous_voting', False, 'unanimous'),

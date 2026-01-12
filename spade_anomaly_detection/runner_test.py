@@ -904,6 +904,7 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
         labeling_and_model_training_batch_size=None,
         ensemble_count=5,
         verbose=False,
+        use_tf_records=True,
     )
 
     self.mock_label_counts = self.enter_context(
@@ -914,10 +915,17 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
         )
     )
 
-    self.mock_load_tf_dataset_from_csv = self.enter_context(
+    self.mock_write_files_to_tfrecord = self.enter_context(
         mock.patch.object(
             csv_data_loader.CsvDataLoader,
-            'load_tf_dataset_from_csv',
+            'write_files_to_tfrecord',
+            autospec=True,
+        )
+    )
+    self.mock_load_tf_record_to_dataset = self.enter_context(
+        mock.patch.object(
+            csv_data_loader.CsvDataLoader,
+            'load_tf_record_to_dataset',
             autospec=True,
         )
     )
@@ -1036,7 +1044,7 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
           (self.test_features, self.test_labels)
       ).batch(self.total_test_records)
 
-      self.mock_load_tf_dataset_from_csv.side_effect = [
+      self.mock_load_tf_record_to_dataset.side_effect = [
           self.all_data_tf_dataset,
           self.unlabeled_data_tf_dataset,
           self.all_data_tf_dataset,
@@ -1044,7 +1052,7 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
       ]
       self.mock_label_counts.return_value = self.label_counts
     else:
-      self.mock_load_tf_dataset_from_csv.side_effect = [
+      self.mock_load_tf_record_to_dataset.side_effect = [
           self.all_data_tf_dataset,
           self.unlabeled_data_tf_dataset,
           self.all_data_tf_dataset,
@@ -1069,10 +1077,16 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     runner_object = runner.Runner(self.runner_parameters)
     runner_object.run()
 
-    with self.subTest(name='StatsDataset'):
-      self.mock_load_tf_dataset_from_csv.assert_any_call(
+    with self.subTest(name='WriteFilesToTfrecord'):
+      self.mock_write_files_to_tfrecord.assert_called_once_with(
           mock.ANY,
           input_path=self.runner_parameters.data_input_gcs_uri,
+          label_col_name=self.runner_parameters.label_col_name,
+      )
+
+    with self.subTest(name='StatsDataset'):
+      self.mock_load_tf_record_to_dataset.assert_any_call(
+          mock.ANY,
           label_col_name=self.runner_parameters.label_col_name,
           batch_size=1,
       )
@@ -1080,17 +1094,9 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
     # Check the batch size here to ensure we are dividing the dataset into 5
     # shards.
     with self.subTest(name='OccDataset'):
-      self.mock_load_tf_dataset_from_csv.assert_any_call(
+      self.mock_load_tf_record_to_dataset.assert_any_call(
           mock.ANY,
-          input_path=self.runner_parameters.data_input_gcs_uri,
           label_col_name=self.runner_parameters.label_col_name,
-          # Verify that both negative and unlabeled samples are used.
-          label_column_filter_value=[
-              runner_object.int_unlabeled_data_value,
-              runner_object.int_negative_data_value,
-          ],
-          # Verify that batch size is computed with both negative and unlabeled
-          # sample counts.
           batch_size=int(
               (self.unlabeled_examples + self.negative_examples)
               // self.runner_parameters.ensemble_count
@@ -1098,9 +1104,8 @@ class RunnerCSVTest(tf.test.TestCase, parameterized.TestCase):
       )
     # Assert that the data loader is also called to fetch all records.
     with self.subTest(name='InferenceAndSupervisedDataset'):
-      self.mock_load_tf_dataset_from_csv.assert_any_call(
+      self.mock_load_tf_record_to_dataset.assert_any_call(
           mock.ANY,
-          input_path=self.runner_parameters.data_input_gcs_uri,
           label_col_name=self.runner_parameters.label_col_name,
           batch_size=self.all_examples,
       )

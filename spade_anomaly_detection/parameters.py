@@ -149,6 +149,8 @@ class RunnerParameters:
     data_output_gcs_uri: Cloud Storage location used for uploading the pseudo
       labeled data as CSV. This includes features and new labels. By default, we
       will use the column names from the data_input_gcs_uri table.
+    use_tf_records: Whether reading and writing data in TF Record format.
+      Default is False.
     voting_strategy: The voting strategy to use when determining if a data point
       is anomalous. By default, we use unanimous voting, meaning all the models
       in the ensemble need to agree in order to label a data point as anomalous.
@@ -217,6 +219,7 @@ class RunnerParameters:
   upload_only: bool = False
   output_bigquery_table_path: str | None = None
   data_output_gcs_uri: str | None = None
+  use_tf_records: bool = False
   voting_strategy: VotingStrategy = VotingStrategy.UNANIMOUS
   alpha: float = 1.0
   alpha_negative_pseudolabels: float | None = None

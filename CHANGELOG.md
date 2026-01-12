@@ -24,6 +24,12 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-01-12
+
+* This change makes SPADE training more efficient by supporting loading data
+using TFRecord. The `use_tf_records` parameter can be set to enable this
+feature.
+
 ## [0.4.0] - 2025-01-22
 
 * Major revision to extend SPADE with new capabilities. Now it is possible to

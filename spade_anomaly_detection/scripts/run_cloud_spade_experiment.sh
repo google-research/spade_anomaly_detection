@@ -59,6 +59,7 @@ LABELING_AND_MODEL_TRAINING_BATCH_SIZE=${26:-"100000"}
 LABELS_ARE_STRINGS=${27:-"True"}
 VERBOSE=${28:-"True"}
 UPLOAD_ONLY=${29:-"False"}
+USE_TF_RECORDS=${30:-"False"}
 
 # Give a unique name to your training job.
 TRIAL_NAME="spade_${USER}_${DATETIME}"
@@ -112,4 +113,5 @@ gcloud ai custom-jobs create \
   --args=--max_occ_batch_size="${MAX_OCC_BATCH_SIZE}" \
   --args=--labeling_and_model_training_batch_size="${LABELING_AND_MODEL_TRAINING_BATCH_SIZE}" \
   --args=--upload_only="${UPLOAD_ONLY}" \
+  --args=--use_tf_records="${USE_TF_RECORDS}" \
   --args=--verbose="${VERBOSE}"

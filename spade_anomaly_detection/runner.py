@@ -48,6 +48,8 @@ from spade_anomaly_detection import parameters
 from spade_anomaly_detection import supervised_model
 import tensorflow as tf
 
+_LABEL_TYPE: Final[str] = 'INT64'
+
 # TODO(b/247116870): Change to collections when Vertex supports python 3.9
 
 
@@ -122,11 +124,21 @@ class Runner:
       self.input_data_loader = cast(
           csv_data_loader.CsvDataLoader, self.input_data_loader
       )
-      _ = self.input_data_loader.load_tf_dataset_from_csv(
-          input_path=self.runner_parameters.data_input_gcs_uri,
-          label_col_name=self.runner_parameters.label_col_name,
-          batch_size=1,
-      )
+      if self.runner_parameters.use_tf_records:
+        self.input_data_loader.write_files_to_tfrecord(
+            input_path=self.runner_parameters.data_input_gcs_uri,
+            label_col_name=self.runner_parameters.label_col_name,
+        )
+        _ = self.input_data_loader.load_tf_record_to_dataset(
+            label_col_name=self.runner_parameters.label_col_name,
+            batch_size=1,
+        )
+      else:
+        _ = self.input_data_loader.load_tf_dataset_from_csv(
+            input_path=self.runner_parameters.data_input_gcs_uri,
+            label_col_name=self.runner_parameters.label_col_name,
+            batch_size=1,
+        )
       self.train_label_counts = self.input_data_loader.label_counts
       self.total_record_count = sum(self.train_label_counts.values())
       if (
@@ -259,6 +271,32 @@ class Runner:
       ]
     return label_record_count
 
+  def _get_filter_by_label_value_func(
+      self, label_column_filter_value: int | list[int] | None
+  ):
+    """Returns a function that filters a record based on the label column value.
+
+    Args:
+      label_column_filter_value: The value or list of values of the label column
+        to use as a filter. If None, all records are included.
+
+    Returns:
+      A function that returns True if the label column value is equal to or in
+      the label_column_filter_value parameter.
+    """
+
+    def filter_func(features: tf.Tensor, label: tf.Tensor) -> bool:  # pylint: disable=unused-argument
+      if label_column_filter_value is None:
+        return True
+      label_cast = tf.cast(label, tf.dtypes.as_dtype(_LABEL_TYPE.lower()))
+      label_column_filter_value_cast = tf.cast(
+          label_column_filter_value, label_cast.dtype
+      )
+      broadcast_equal = tf.equal(label_column_filter_value_cast, label_cast)
+      return tf.reduce_any(broadcast_equal)
+
+    return filter_func
+
   def check_data_tables(
       self,
       total_record_count: int,
@@ -377,17 +415,33 @@ class Runner:
       self.input_data_loader = cast(
           csv_data_loader.CsvDataLoader, self.input_data_loader
       )
-      training_data = self.input_data_loader.load_tf_dataset_from_csv(
-          input_path=self.runner_parameters.data_input_gcs_uri,
-          label_col_name=self.runner_parameters.label_col_name,
-          batch_size=batch_size,
-          # Train using negative labeled data and unlabeled data.
-          label_column_filter_value=[
-              # Use the int values for filtering because filtering happens after
-              # the dataset labels are converted to int.
-              self.int_unlabeled_data_value,
-              self.int_negative_data_value,
-          ],
+      if self.runner_parameters.use_tf_records:
+        training_data = self.input_data_loader.load_tf_record_to_dataset(
+            batch_size=batch_size,
+            label_col_name=self.runner_parameters.label_col_name,
+        )
+      else:
+        training_data = self.input_data_loader.load_tf_dataset_from_csv(
+            input_path=self.runner_parameters.data_input_gcs_uri,
+            label_col_name=self.runner_parameters.label_col_name,
+            batch_size=batch_size,
+            # Train using negative labeled data and unlabeled data.
+            label_column_filter_value=[
+                # Use the int values for filtering because filtering happens
+                # after the dataset labels are converted to int.
+                self.int_unlabeled_data_value,
+                self.int_negative_data_value,
+            ],
+        )
+      training_data = (
+          training_data.unbatch()
+          .filter(
+              self._get_filter_by_label_value_func([
+                  self.int_unlabeled_data_value,
+                  self.int_negative_data_value,
+              ])
+          )
+          .batch(batch_size)
       )
       ensemble_object.unlabeled_record_count = unlabeled_record_count
       ensemble_object.negative_record_count = negative_record_count
@@ -813,11 +867,17 @@ class Runner:
       self.input_data_loader = cast(
           csv_data_loader.CsvDataLoader, self.input_data_loader
       )
-      tf_dataset = self.input_data_loader.load_tf_dataset_from_csv(
-          input_path=self.runner_parameters.data_input_gcs_uri,
-          label_col_name=self.runner_parameters.label_col_name,
-          batch_size=batch_size,
-      )
+      if self.runner_parameters.use_tf_records:
+        tf_dataset = self.input_data_loader.load_tf_record_to_dataset(
+            label_col_name=self.runner_parameters.label_col_name,
+            batch_size=batch_size,
+        )
+      else:
+        tf_dataset = self.input_data_loader.load_tf_dataset_from_csv(
+            input_path=self.runner_parameters.data_input_gcs_uri,
+            label_col_name=self.runner_parameters.label_col_name,
+            batch_size=batch_size,
+        )
     tf_dataset = tf_dataset.as_numpy_iterator()
 
     unique_labels = set()
