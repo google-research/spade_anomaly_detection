@@ -1,4 +1,4 @@
-# Copyright 2025 The spade_anomaly_detection Authors.
+# Copyright 2026 The spade_anomaly_detection Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ import pandas as pd
 
 
 def mock_get_bigquery_dataset_return_value(
-    mock_client: ...,
+    mock_client,
     return_value: Sequence[pd.DataFrame],
     mock_list_rows: bool = True,
     mock_query: bool = True,
