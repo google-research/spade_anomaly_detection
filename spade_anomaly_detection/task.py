@@ -385,6 +385,17 @@ _UPLOAD_ONLY = flags.DEFINE_bool(
     ),
 )
 
+_USE_TF_RECORDS = flags.DEFINE_bool(
+    "use_tf_records",
+    default=False,
+    required=False,
+    help=(
+        "Use this setting if the input data is in TF Record format. When True,"
+        " TF Record will be used forreading and writing data. Default is"
+        " False."
+    ),
+)
+
 # TODO(b/247116870) Implement the rest of the input parameters.
 
 
@@ -443,6 +454,7 @@ def main(argv: Sequence[str]) -> None:
       covariance_type=_COVARIANCE_TYPE.value,
       random_seed=_RANDOM_SEED,
       verbose=_VERBOSE.value,
+      use_tf_records=_USE_TF_RECORDS.value,
   )
   runner_obj = runner.Runner(runner_parameters)
   runner_obj.run()

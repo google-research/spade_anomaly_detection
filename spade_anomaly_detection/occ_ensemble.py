@@ -177,38 +177,6 @@ class GmmEnsemble:
         reg_covar=self._reg_covar,
     )
 
-  def _get_filter_by_label_value_func(self, label_column_filter_value: int):
-    """Returns a function that filters a record based on the label column value.
-
-    Args:
-      label_column_filter_value: The value of the label column to use as a
-        filter. If None, all records are included.
-
-    Returns:
-      A function that returns True if the label column value is equal to the
-      label_column_filter_value parameter.
-    """
-
-    def filter_func(features: tf.Tensor, label: tf.Tensor) -> bool:  # pylint: disable=unused-argument
-      if label_column_filter_value is None:
-        return True
-      label_cast = tf.cast(label, tf.dtypes.as_dtype(_LABEL_TYPE.lower()))
-      label_column_filter_value_cast = tf.cast(
-          label_column_filter_value, label_cast.dtype
-      )
-      broadcast_equal = tf.equal(label_column_filter_value_cast, label_cast)
-      return tf.reduce_all(broadcast_equal)
-
-    return filter_func
-
-  def is_batched(self, dataset: tf.data.Dataset) -> bool:
-    """Returns True if the dataset is batched."""
-    # This suffices for the current use case of the OCC ensemble.
-    return len(dataset.element_spec[0].shape) == 2 and (
-        dataset.element_spec[0].shape[0] is None
-        or isinstance(dataset.element_spec[0].shape[0], int)
-    )
-
   # Fit with -ve included in every batch to GMMs.
   def fit(
       self,
@@ -233,61 +201,11 @@ class GmmEnsemble:
     if batches_per_occ > 1:
       self._warm_start = True
 
-    has_batches = self.is_batched(train_x)
-    logging.info('has_batches is %s', has_batches)
     negative_features = None
 
-    if (
-        not self.unlabeled_record_count
-        or not self.negative_record_count
-        or not has_batches
-        or self.unlabeled_data_value is None
-        or self.negative_data_value is None
-    ):
-      # Either the dataset is not batched, or we don't have all the details to
-      # extract the negative-labeled data. Hence we will use all the data for
-      # training.
-      dataset_iterator = train_x.as_numpy_iterator()
-    else:
-      # We unbatch the dataset so that we can separate-out the unlabeled and
-      # negative data points
-      ds_unbatched = train_x.unbatch()
-
-      ds_unlabeled = ds_unbatched.filter(
-          self._get_filter_by_label_value_func(self.unlabeled_data_value)
-      )
-
-      ds_negative = ds_unbatched.filter(
-          self._get_filter_by_label_value_func(self.negative_data_value)
-      )
-
-      negative_features_and_labels_zip = list(
-          zip(*ds_negative.as_numpy_iterator())
-      )
-
-      negative_features = (
-          negative_features_and_labels_zip[0]
-          if len(negative_features_and_labels_zip) == 2
-          else None
-      )
-
-      if negative_features is None:
-        # The negative features were not extracted. This can happen when the
-        # dataset elements are not tuples of features and labels. So we will use
-        # all the data for training.
-        ds_batched = train_x
-      else:
-        # The negative features were extracted. How we can proceed with creating
-        # batches of unlabeled data, to which the negative data will be added
-        # before training.
-        batch_size = (
-            self.unlabeled_record_count // self.ensemble_count
-        ) // batches_per_occ
-        ds_batched = ds_unlabeled.batch(
-            batch_size,
-            drop_remainder=False,
-        )
-      dataset_iterator = ds_batched.as_numpy_iterator()
+    # TODO: b/333154677 - Examine the latency impact of using
+    # as_numpy_iterator() here.
+    dataset_iterator = train_x.as_numpy_iterator()
 
     for idx in range(self.ensemble_count):
       model = self._get_model(idx=idx)
@@ -364,8 +282,8 @@ class GmmEnsemble:
       thresh_pos = np.percentile(unlabeled_scores, self.positive_threshold)
       thresh_neg = np.percentile(unlabeled_scores, self.negative_threshold)
 
-      binary_scores_pos = (unlabeled_scores < thresh_pos)
-      binary_scores_neg = (unlabeled_scores > thresh_neg)
+      binary_scores_pos = unlabeled_scores < thresh_pos
+      binary_scores_neg = unlabeled_scores > thresh_neg
 
       model_scores_pos += binary_scores_pos
       model_scores_neg += binary_scores_neg
@@ -375,7 +293,7 @@ class GmmEnsemble:
 
     return {
         'positive_indices': positive_indices,
-        'negative_indices': negative_indices
+        'negative_indices': negative_indices,
     }
 
   def pseudo_label(
@@ -423,27 +341,32 @@ class GmmEnsemble:
     original_unlabeled_idx = np.where(labels == unlabeled_data_value)[0]
 
     updated_indices = self._score_unlabeled_data(
-        unlabeled_features=features[original_unlabeled_idx, :])
+        unlabeled_features=features[original_unlabeled_idx, :]
+    )
 
     new_positive_indices = updated_indices['positive_indices']
     new_negative_indices = updated_indices['negative_indices']
 
     new_positive_features = features[
-        original_unlabeled_idx[new_positive_indices]]
+        original_unlabeled_idx[new_positive_indices]
+    ]
     new_negative_features = features[
-        original_unlabeled_idx[new_negative_indices]]
+        original_unlabeled_idx[new_negative_indices]
+    ]
     positive_features = features[original_positive_idx]
     negative_features = features[original_negative_idx]
 
     # Build the new feature, label, and weight set to send to a supervised
     # model.
-    new_features = np.concatenate([
-        new_positive_features,
-        new_negative_features,
-        positive_features,
-        negative_features,
-    ],
-                                  axis=0)
+    new_features = np.concatenate(
+        [
+            new_positive_features,
+            new_negative_features,
+            positive_features,
+            negative_features,
+        ],
+        axis=0,
+    )
     new_labels = np.concatenate(
         [
             np.full(len(new_positive_indices), positive_data_value),
@@ -473,10 +396,12 @@ class GmmEnsemble:
     )
 
     if verbose:
-      logging.info('Number of new positive labels: %s',
-                   len(new_positive_indices))
-      logging.info('Number of new negative labels: %s',
-                   len(new_negative_indices))
+      logging.info(
+          'Number of new positive labels: %s', len(new_positive_indices)
+      )
+      logging.info(
+          'Number of new negative labels: %s', len(new_negative_indices)
+      )
 
     return PseudolabelsContainer(
         new_features=new_features,

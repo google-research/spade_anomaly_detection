@@ -33,7 +33,7 @@ import collections
 import csv
 import dataclasses
 import os
-from typing import Callable, Dict, Final, Mapping, Optional, Sequence, Tuple, cast
+from typing import Callable, Dict, Final, Mapping, Sequence, Tuple, cast
 
 from absl import logging
 from google.cloud import storage
@@ -48,6 +48,9 @@ _FEATURES_TYPE: Final[str] = 'FLOAT64'
 _SOURCE_LABEL_TYPE: Final[str] = 'STRING'
 _SOURCE_LABEL_DEFAULT_VALUE: Final[str] = '-1'
 _LABEL_TYPE: Final[str] = 'INT64'
+_TFRECORD_WRITE_PATH_PATTERN: Final[str] = './data-{}.tfrecord'
+_TFRECORD_READ_PATH_PATTERN: Final[str] = './data-*.tfrecord'
+_FEATURES_KEY: Final[str] = 'key'
 _STRING_TO_INTEGER_LABEL_MAP: dict[str | int, int] = {
     1: 1,
     0: 0,
@@ -80,7 +83,7 @@ def _get_header_from_input_file(inputs_file: str) -> str:
 def _list_files(
     bucket_name: str,
     input_blob_prefix: str,
-    input_blob_suffix: Optional[str] = None,
+    input_blob_suffix: str | None = None,
 ) -> Sequence[str]:
   """Lists all files in `bucket_name` matching a prefix and an optional suffix.
 
@@ -364,7 +367,7 @@ class CsvDataLoader:
               'Failed to convert label %s to integer: %s', label, e
           )
           raise e
-      label_cast = tf.cast(label[0], tf.dtypes.as_dtype(_LABEL_TYPE.lower()))
+      label_cast = tf.cast(label, tf.dtypes.as_dtype(_LABEL_TYPE.lower()))
       label_column_filter_value_cast = tf.cast(
           label_column_filter_value, label_cast.dtype
       )
@@ -375,6 +378,222 @@ class CsvDataLoader:
       return broadcast_all
 
     return filter_func
+
+  def write_files_to_tfrecord(
+      self,
+      input_path: str,
+      label_col_name: str,
+      tfrecord_path_pattern: str = _TFRECORD_WRITE_PATH_PATTERN,
+      encoding: str = 'utf-8',
+  ) -> None:
+    """Convert multiple CSV files to a tf.data.Dataset.
+    Args:
+      input_path: The path to the CSV files.
+      label_col_name: The name of the label column.
+      tfrecord_path_pattern: The output file pattern to write the TFRecord
+        files.
+      encoding: The encoding to use for the TFRecord files.
+    Raises:
+      FileNotFoundError: If no files are found with the URI pattern.
+    """
+    bucket, prefix, suffix = _parse_gcs_uri(input_path)
+    # Since we are reading a new set of CSV files, we need to get the metadata
+    # again.
+    self._last_read_metadata = self.get_inputs_metadata(
+        bucket_name=bucket,
+        location_prefix=prefix,
+        location_suffix=suffix,
+        label_column_name=label_col_name,
+    )
+    logging.info('Last read metadata: %s', self._last_read_metadata)
+    # Get the names of the CSV files containing the data and other metadata
+    filenames = self._last_read_metadata.files
+    logging.info('Found %d CSV files.', len(filenames))
+    if not filenames:
+      raise FileNotFoundError('No file found: %s' % input_path)
+    for index, file in enumerate(filenames):
+      tfrecord_path = tfrecord_path_pattern.format(index)
+      logging.info('Writing file %s to %s', file, tfrecord_path)
+      # TODO: b/382108830 - Add sharding to the TFRecord files. Currently, the
+      # files are 1:1 mapping.
+      with tf.io.TFRecordWriter(tfrecord_path) as writer:
+        with tf.io.gfile.GFile(file, 'r') as f:
+          next(f)
+          reader = csv.DictReader(
+              f,
+              fieldnames=list(
+                  self._last_read_metadata.column_names_info.column_names_dict.keys()
+              ),
+          )
+          for row_dict in reader:
+            values = list(row_dict.values())[:-1]
+            feature = {
+                _FEATURES_KEY: tf.train.Feature(
+                    bytes_list=tf.train.BytesList(
+                        value=map(lambda x: x.encode(encoding), values)
+                    )
+                )
+            }
+            feature[label_col_name] = tf.train.Feature(
+                bytes_list=tf.train.BytesList(
+                    value=[row_dict[label_col_name].encode(encoding)]
+                )
+            )
+            example = tf.train.Example(
+                features=tf.train.Features(feature=feature)
+            )
+            writer.write(example.SerializeToString())
+      logging.info('Finished writing file %s to %s', file, tfrecord_path)
+
+  def load_tf_record_to_dataset(
+      self,
+      label_col_name: str,
+      tfrecord_path_pattern: str = _TFRECORD_READ_PATH_PATTERN,
+      batch_size: int | None = None,
+      label_column_filter_value: LabelColumnType = None,
+      exclude_label_value: bool = False,
+  ) -> tf.data.Dataset:
+    """Loads the tfrecord to a dataset.
+     When loading the tfrecord to a dataset, it does not shuffle the dataset.
+    Args:
+      label_col_name: The name of the label column.
+      tfrecord_path_pattern: The path pattern of the tfrecord files.
+      batch_size: The batch size to use for the dataset. If None, the batch size
+        will be set to 1.
+      label_column_filter_value: The value of the label column to use as a
+        filter. If None, all records are included.
+      exclude_label_value: If True, exclude records with the label column value.
+        If False, include records with the label column value.
+    Returns:
+      A tf.data.Dataset containing the tfrecord data.
+    Raises:
+      tf.errors.NotFoundError: If no file is found with the path pattern.
+      tf.errors.OpError: If the file pattern is invalid.
+    """
+    if not self._last_read_metadata:
+      raise ValueError(
+          'No metadata has been read yet, ensure that you have made a call to '
+          'write_files_to_tfrecord() before this method is called.'
+      )
+    logging.info('Reading tfrecord files into dataset.')
+    try:
+      tfrecord_paths = tf.io.gfile.glob(tfrecord_path_pattern)
+    except tf.errors.NotFoundError as e:
+      logging.exception('No file found: %s', tfrecord_path_pattern)
+      raise e
+    except tf.errors.OpError as e:
+      logging.exception('Invalid file pattern: %s', tfrecord_path_pattern)
+      raise e
+    logging.info(
+        'Found %d files with pattern: %s',
+        len(tfrecord_paths),
+        tfrecord_path_pattern,
+    )
+    dataset = tf.data.TFRecordDataset(tfrecord_paths)
+    logging.info('Loading tfrecord to dataset: %s', dataset.take(1))
+
+    num_features = self._last_read_metadata.column_names_info.num_features
+
+    def _parse_single_example(example):
+      example = tf.io.parse_single_example(
+          example,
+          features={
+              _FEATURES_KEY: tf.io.FixedLenFeature(
+                  shape=[num_features],
+                  dtype=tf.string,
+              ),
+              label_col_name: tf.io.FixedLenFeature(shape=[], dtype=tf.string),
+          },
+      )
+      labels = example.pop(label_col_name)
+      return example, labels
+
+    dataset = dataset.map(
+        _parse_single_example,
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
+    logging.info('Loaded tfrecord to dataset.')
+    dataset = self._transform_dataset(
+        dataset=dataset,
+        batch_size=batch_size,
+        label_column_filter_value=label_column_filter_value,
+        exclude_label_value=exclude_label_value,
+        run_for_tf_record=True,
+    )
+    return dataset
+
+  def _transform_dataset(
+      self,
+      dataset: tf.data.Dataset,
+      batch_size: int | None = None,
+      label_column_filter_value: LabelColumnType = None,
+      exclude_label_value: bool = False,
+      run_for_tf_record: bool = False,
+  ) -> tf.data.Dataset:
+    """Transforms the dataset to a format that is ready for training."""
+    logging.info('Transforming dataset.')
+    # The Dataset can have labels of type int or str. Cast them to int.
+    dataset = dataset.map(
+        lambda features, label: (features, self.remap_label(label)),
+        num_parallel_calls=tf.data.AUTOTUNE,
+        deterministic=True,
+    )
+    # Filter the dataset by label column value. Filtering is applied after
+    # re-mapping the labels so that the labels are all integers.
+    ds_filter_func = self._get_filter_by_label_value_func(
+        label_column_filter_value=label_column_filter_value,
+        exclude_label_value=exclude_label_value,
+    )
+    dataset = dataset.filter(ds_filter_func)
+
+    # The Dataset returns features as a dict. Combine the features into a single
+    # tensor. Also cast the features and labels to correct types.
+    def combine_features_dict_into_tensor(
+        features: Mapping[str, tf.Tensor],
+        label: tf.Tensor,
+    ) -> tuple[tf.Tensor, tf.Tensor]:
+      """Combines the features into a single tensor."""
+      feature_matrix = tf.squeeze(
+          tf.stack(list(features.values()), axis=0 if run_for_tf_record else 1)
+      )
+      feature_matrix = tf.reshape(feature_matrix, (-1,))
+      if run_for_tf_record:
+        feature_matrix = tf.strings.to_number(
+            feature_matrix, out_type=tf.dtypes.as_dtype(_FEATURES_TYPE.lower())
+        )
+      else:
+        feature_matrix = tf.cast(
+            feature_matrix,
+            tf.dtypes.as_dtype(_FEATURES_TYPE.lower()),
+            name='features',
+        )
+      label = tf.squeeze(label)
+      label = tf.reshape(label, (-1,))
+      label = tf.cast(
+          label, tf.dtypes.as_dtype(_LABEL_TYPE.lower()), name='label'
+      )
+      return feature_matrix, label
+
+    dataset = dataset.map(
+        combine_features_dict_into_tensor,
+        num_parallel_calls=tf.data.AUTOTUNE,
+        deterministic=True,
+    )
+    dataset = dataset.repeat(1)  # One repeat of the dataset during creation.
+    if batch_size:
+      dataset = dataset.batch(batch_size, deterministic=True)
+      dataset = dataset.prefetch(tf.data.AUTOTUNE)
+
+    # This Dataset was just created. Calculate the label distribution. Any
+    # string labels were already re-mapped to integers. So keys are always
+    # integers and values are EagerTensors. We need to extract the value within
+    # this Tensor for subsequent use.
+    # TODO: b/382108830 - Investigate further to reduce the latency here.
+    if self._label_counts is None:
+      self._label_counts = {
+          k: v.numpy() for k, v in self.counts_by_label(dataset).items()
+      }
+    return dataset
 
   @classmethod
   def convert_str_to_int(cls, value: str) -> int:
@@ -418,15 +637,13 @@ class CsvDataLoader:
       self,
       input_path: str,
       label_col_name: str,
-      batch_size: Optional[int] = None,
+      batch_size: int | None = None,
       label_column_filter_value: LabelColumnType = None,
       exclude_label_value: bool = False,
   ) -> tf.data.Dataset:
     """Convert multiple CSV files to a tf.data.Dataset.
-
     Multiple CSV files are read from a specified location. They are streamed
     using a tf.data.Dataset.
-
     Args:
       input_path: The path to the CSV files.
       label_col_name: The name of the label column.
@@ -436,7 +653,6 @@ class CsvDataLoader:
         filter. If None, all records are included.
       exclude_label_value: If True, exclude records with the label column value.
         If False, include records with the label column value.
-
     Returns:
       A tf.data.Dataset.
     """
@@ -498,62 +714,12 @@ class CsvDataLoader:
           'created.'
       )
 
-    # The Dataset can have labels of type int or str. Cast them to int.
-    dataset = dataset.map(
-        lambda features, label: (features, self.remap_label(label)),
-        num_parallel_calls=tf.data.AUTOTUNE,
-        deterministic=True,
-    )
-
-    # Filter the dataset by label column value. Filtering is applied after
-    # re-mapping the labels so that the labels are all integers.
-    ds_filter_func = self._get_filter_by_label_value_func(
+    return self._transform_dataset(
+        dataset=dataset,
+        batch_size=batch_size,
         label_column_filter_value=label_column_filter_value,
         exclude_label_value=exclude_label_value,
     )
-    dataset = dataset.filter(ds_filter_func)
-
-    # The Dataset returns features as a dict. Combine the features into a single
-    # tensor. Also cast the features and labels to correct types.
-    def combine_features_dict_into_tensor(
-        features: Mapping[str, tf.Tensor],
-        label: tf.Tensor,
-    ) -> Tuple[tf.Tensor, tf.Tensor]:
-      """Combines the features into a single tensor."""
-      feature_matrix = tf.squeeze(tf.stack(list(features.values()), axis=1))
-      feature_matrix = tf.reshape(feature_matrix, (-1,))
-      feature_matrix = tf.cast(
-          feature_matrix,
-          tf.dtypes.as_dtype(_FEATURES_TYPE.lower()),
-          name='features',
-      )
-      label = tf.squeeze(label)
-      label = tf.reshape(label, (-1,))
-      label = tf.cast(
-          label, tf.dtypes.as_dtype(_LABEL_TYPE.lower()), name='label'
-      )
-      return feature_matrix, label
-
-    dataset = dataset.map(
-        combine_features_dict_into_tensor,
-        num_parallel_calls=tf.data.AUTOTUNE,
-        deterministic=True,
-    )
-
-    dataset = dataset.repeat(1)  # One repeat of the dataset during creation.
-    if batch_size:
-      dataset = dataset.batch(batch_size, deterministic=True)
-      dataset = dataset.prefetch(tf.data.AUTOTUNE)
-
-    # This Dataset was just created. Calculate the label distribution. Any
-    # string labels were already re-mapped to integers. So keys are always
-    # integers and values are EagerTensors. We need to extract the value within
-    # this Tensor for subsequent use.
-    self._label_counts = {
-        k: v.numpy() for k, v in self.counts_by_label(dataset).items()
-    }
-
-    return dataset
 
   def counts_by_label(self, dataset: tf.data.Dataset) -> Dict[int, tf.Tensor]:
     """Counts the number of samples in each label class in the dataset.
@@ -583,16 +749,21 @@ class CsvDataLoader:
           i_for_compare = self.convert_str_to_int(i)
         else:
           i_for_compare = i
-        cc: tf.Tensor = tf.cast(labels == i_for_compare, tf.int32)
+        cc: tf.Tensor = tf.cast(
+            labels == tf.constant(i_for_compare, dtype=tf.int64), tf.int64
+        )
         if i_for_compare in list(new_counts.keys()):
           new_counts[i_for_compare] += tf.reduce_sum(cc)
         else:
           new_counts[i_for_compare] = tf.reduce_sum(cc)
       return new_counts
 
-    initial_state = dict(
-        (self.convert_str_to_int(i), 0) for i in self.all_labels
-    )
+    initial_state = {}
+    for i in self.all_labels:
+      if isinstance(i, str):
+        i = self.convert_str_to_int(i)
+        initial_state[i] = tf.constant(0, dtype=tf.int64)
+
     counts = dataset.reduce(
         initial_state=initial_state, reduce_func=count_class
     )
@@ -704,8 +875,8 @@ class CsvDataLoader:
       batch: int,
       features: np.ndarray,
       labels: np.ndarray,
-      weights: Optional[np.ndarray] = None,
-      pseudolabel_flags: Optional[np.ndarray] = None,
+      weights: np.ndarray | None = None,
+      pseudolabel_flags: np.ndarray | None = None,
       map_labels_to_bool: bool = False,
   ) -> None:
     """Uploads the dataframe to BigQuery, create or replace table.
