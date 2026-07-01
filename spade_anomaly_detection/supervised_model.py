@@ -173,7 +173,7 @@ class RandomForestModel(Model):
     """
     # Note: Batch fitting is not supported in TFDF Random Forest, even though
     # it is in the public documentation.
-    return self.supervised_model.fit(
+    return self.supervised_model.fit(  # pyrefly: ignore[missing-attribute]
         x=features,
         y=labels,
         sample_weight=weights,

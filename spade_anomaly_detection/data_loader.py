@@ -82,7 +82,7 @@ def load_dataframe(
     features and labels of the dataset respectively.
   """
   if isinstance(filter_label_value, (str, int)):
-    filter_label_value = [filter_label_value]
+    filter_label_value = [filter_label_value]  # pyrefly: ignore[bad-assignment]
 
   file_path = os.path.join(_DATA_ROOT, f'{dataset_name}.csv')
 
@@ -167,7 +167,7 @@ def load_tf_dataset_from_csv(
   label_tensors = tf.convert_to_tensor(labels, dtype=tf.dtypes.int8)
 
   tf_dataset = tf.data.Dataset.from_tensor_slices(
-      (feature_tensors, label_tensors)
+      (feature_tensors, label_tensors)  # pyrefly: ignore[bad-argument-type]
   )
 
   if batch_size is not None:
@@ -182,7 +182,7 @@ class DataLoader:
   """Contains methods for interacting with BigQuery using RunnerParameters."""
 
   def __init__(self, runner_parameters: parameters.RunnerParameters):
-    self.input_feature_metadata: feature_metadata.BigQueryTableMetadata = None
+    self.input_feature_metadata: feature_metadata.BigQueryTableMetadata = None  # pyrefly: ignore[bad-assignment]
     self.runner_parameters = runner_parameters
 
     self.table_parts = bq_utils.BQTablePathParts.from_full_path(
@@ -414,7 +414,7 @@ class DataLoader:
 
     tf_dataset, metadata = bq_dataset.get_dataset_and_metadata_for_table(
         table_path=input_path,
-        batch_size=batch_size,
+        batch_size=batch_size,  # pyrefly: ignore[bad-argument-type]
         with_mask=False,
         drop_remainder=True,
         metadata_options=metadata_retrieval_options,

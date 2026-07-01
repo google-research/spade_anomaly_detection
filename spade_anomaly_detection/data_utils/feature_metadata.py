@@ -507,7 +507,7 @@ class FeatureMetadataContainer:
     if not self._metadata_for_dtype:
       self._metadata_for_dtype = collections.defaultdict(list)
       for m in self._metadata_sequence:
-        self._metadata_for_dtype[m.input_data_type].append(m)
+        self._metadata_for_dtype[m.input_data_type].append(m)  # pyrefly: ignore[bad-index]
 
     return self._metadata_for_dtype
 
@@ -515,7 +515,7 @@ class FeatureMetadataContainer:
       self, input_data_type: str
   ) -> MutableSequence[FeatureMetadata]:
     """Returns a set of metadata for features of the given type."""
-    return self.feature_metadata_by_dtypes[input_data_type]
+    return self.feature_metadata_by_dtypes[input_data_type]  # pyrefly: ignore[unsupported-operation]
 
   @property
   def names(self) -> Sequence[str]:

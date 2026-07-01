@@ -109,7 +109,7 @@ class Runner:
       self.total_record_count = (
           self.input_data_loader.get_query_record_result_length(
               input_path=self.runner_parameters.input_bigquery_table_path,
-              where_statements=self.runner_parameters.where_statements,
+              where_statements=self.runner_parameters.where_statements,  # pyrefly: ignore[bad-argument-type]
           )
       )
       if not self.runner_parameters.upload_only:
@@ -194,17 +194,17 @@ class Runner:
     # Leave the original values unchanged (whether string or int).
     self.int_positive_data_value = (
         csv_data_loader.CsvDataLoader.convert_str_to_int(
-            self.runner_parameters.positive_data_value
+            self.runner_parameters.positive_data_value  # pyrefly: ignore[bad-argument-type]
         )
     )
     self.int_negative_data_value = (
         csv_data_loader.CsvDataLoader.convert_str_to_int(
-            self.runner_parameters.negative_data_value
+            self.runner_parameters.negative_data_value  # pyrefly: ignore[bad-argument-type]
         )
     )
     self.int_unlabeled_data_value = (
         csv_data_loader.CsvDataLoader.convert_str_to_int(
-            self.runner_parameters.unlabeled_data_value
+            self.runner_parameters.unlabeled_data_value  # pyrefly: ignore[bad-argument-type]
         )
     )
 
@@ -212,10 +212,10 @@ class Runner:
     """Gets the statistics for the input table."""
     if self.data_format == DataFormat.BIGQUERY:
       input_table_statistics = self.input_data_loader.get_label_thresholds(
-          self.runner_parameters.input_bigquery_table_path
+          self.runner_parameters.input_bigquery_table_path  # pyrefly: ignore[bad-argument-count]
       )
     else:
-      input_table_statistics = self.input_data_loader.get_label_thresholds()
+      input_table_statistics = self.input_data_loader.get_label_thresholds()  # pyrefly: ignore[missing-argument]
     logging.info('Input table statistics: %s', input_table_statistics)
     return input_table_statistics
 
@@ -246,7 +246,7 @@ class Runner:
       label_record_count = (
           self.input_data_loader.get_query_record_result_length(
               input_path=self.runner_parameters.input_bigquery_table_path,
-              where_statements=label_record_count_where_statements,
+              where_statements=label_record_count_where_statements,  # pyrefly: ignore[bad-argument-type]
           )
       )
     else:
@@ -255,7 +255,7 @@ class Runner:
       )
       # labe_counts is a dictionary of int label values to int record counts.
       label_record_count = self.input_data_loader.label_counts[
-          csv_data_loader.CsvDataLoader.convert_str_to_int(label_value)
+          csv_data_loader.CsvDataLoader.convert_str_to_int(label_value)  # pyrefly: ignore[bad-argument-type]
       ]
     return label_record_count
 
@@ -337,8 +337,8 @@ class Runner:
         n_components=self.runner_parameters.n_components,
         covariance_type=self.runner_parameters.covariance_type,
         ensemble_count=self.runner_parameters.ensemble_count,
-        positive_threshold=self.runner_parameters.positive_threshold,
-        negative_threshold=self.runner_parameters.negative_threshold,
+        positive_threshold=self.runner_parameters.positive_threshold,  # pyrefly: ignore[bad-argument-type]
+        negative_threshold=self.runner_parameters.negative_threshold,  # pyrefly: ignore[bad-argument-type]
         voting_strategy=self.runner_parameters.voting_strategy,
         random_seed=self.runner_parameters.random_seed,
         verbose=self.runner_parameters.verbose,
@@ -361,7 +361,7 @@ class Runner:
       training_data = self.input_data_loader.load_tf_dataset_from_bigquery(
           input_path=self.runner_parameters.input_bigquery_table_path,
           label_col_name=self.runner_parameters.label_col_name,
-          where_statements=self.runner_parameters.where_statements,
+          where_statements=self.runner_parameters.where_statements,  # pyrefly: ignore[bad-argument-type]
           ignore_columns=self.runner_parameters.ignore_columns,
           batch_size=batch_size,
           # Train using negative labeled data and unlabeled data.
@@ -456,7 +456,7 @@ class Runner:
       )
 
     else:
-      eval_results = self.supervised_model_object.supervised_model.evaluate(
+      eval_results = self.supervised_model_object.supervised_model.evaluate(  # pyrefly: ignore[missing-attribute]
           x=self.test_x, y=self.test_y, return_dict=True
       )
       if batch_number == 0:
@@ -470,7 +470,7 @@ class Runner:
           if self.supervised_model_metrics is not None:
             self.supervised_model_metrics[metric_name] += (
                 metric_value - self.supervised_model_metrics[metric_name]
-            ) / (batch_number + 1)
+            ) / (batch_number + 1)  # pyrefly: ignore[unsupported-operation]
 
         logging.info(
             'Supervised model evaluation for current batch %s',
@@ -578,12 +578,12 @@ class Runner:
           data_loader.DataLoader, self.test_data_loader
       )
       test_dataset_size = self.test_data_loader.get_query_record_result_length(
-          input_path=self.runner_parameters.test_bigquery_table_path,
+          input_path=self.runner_parameters.test_bigquery_table_path,  # pyrefly: ignore[bad-argument-type]
           where_statements=unlabeled_sample_where_statements,
       )
       test_tf_dataset = self.test_data_loader.load_tf_dataset_from_bigquery(
-          input_path=self.runner_parameters.test_bigquery_table_path,
-          label_col_name=self.runner_parameters.test_label_col_name,
+          input_path=self.runner_parameters.test_bigquery_table_path,  # pyrefly: ignore[bad-argument-type]
+          label_col_name=self.runner_parameters.test_label_col_name,  # pyrefly: ignore[bad-argument-type]
           where_statements=unlabeled_sample_where_statements,
           ignore_columns=self.runner_parameters.ignore_columns,
           batch_size=test_dataset_size,
@@ -594,8 +594,8 @@ class Runner:
           csv_data_loader.CsvDataLoader, self.test_data_loader
       )
       test_tf_dataset = self.test_data_loader.load_tf_dataset_from_csv(
-          input_path=self.runner_parameters.data_test_gcs_uri,
-          label_col_name=self.runner_parameters.test_label_col_name,
+          input_path=self.runner_parameters.data_test_gcs_uri,  # pyrefly: ignore[bad-argument-type]
+          label_col_name=self.runner_parameters.test_label_col_name,  # pyrefly: ignore[bad-argument-type]
           batch_size=None,
           label_column_filter_value=[
               self.int_unlabeled_data_value,
@@ -728,8 +728,8 @@ class Runner:
           )
       else:
         if self.test_x is not None:
-          self.test_x = np.concatenate([self.test_x, test_x], axis=0)
-          self.test_y = np.concatenate([self.test_y, test_y], axis=0)
+          self.test_x = np.concatenate([self.test_x, test_x], axis=0)  # pyrefly: ignore[no-matching-overload]
+          self.test_y = np.concatenate([self.test_y, test_y], axis=0)  # pyrefly: ignore[no-matching-overload]
         else:
           self.test_x = test_x
           self.test_y = test_y
@@ -785,7 +785,7 @@ class Runner:
     )
 
     self.check_data_tables(
-        total_record_count=self.total_record_count,
+        total_record_count=self.total_record_count,  # pyrefly: ignore[bad-argument-type]
         unlabeled_record_count=unlabeled_record_count,
     )
 
@@ -805,7 +805,7 @@ class Runner:
       tf_dataset = self.input_data_loader.load_tf_dataset_from_bigquery(
           input_path=self.runner_parameters.input_bigquery_table_path,
           label_col_name=self.runner_parameters.label_col_name,
-          where_statements=self.runner_parameters.where_statements,
+          where_statements=self.runner_parameters.where_statements,  # pyrefly: ignore[bad-argument-type]
           ignore_columns=self.runner_parameters.ignore_columns,
           batch_size=batch_size,
       )
@@ -846,7 +846,7 @@ class Runner:
               unlabeled_data_value=self.int_unlabeled_data_value,
               alpha=self.runner_parameters.alpha,
               alpha_negative_pseudolabels=(
-                  self.runner_parameters.alpha_negative_pseudolabels
+                  self.runner_parameters.alpha_negative_pseudolabels  # pyrefly: ignore[bad-argument-type]
               ),
               verbose=self.runner_parameters.verbose,
           )

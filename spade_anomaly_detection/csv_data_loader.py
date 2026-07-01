@@ -222,7 +222,7 @@ class CsvDataLoader:
     self._label_counts = None
     self._last_read_metadata = None
 
-    self.all_labels: Final[list[int] | list[str]] = [
+    self.all_labels: Final[list[int] | list[str]] = [  # pyrefly: ignore[bad-assignment]
         self.runner_parameters.positive_data_value,
         self.runner_parameters.negative_data_value,
         self.runner_parameters.unlabeled_data_value,
@@ -243,7 +243,7 @@ class CsvDataLoader:
     # Construct a label remap from string labels to integers.
     if self.runner_parameters.labels_are_strings:
       orig_labels: list[int] = [
-          self.convert_str_to_int(l) for l in self.all_labels
+          self.convert_str_to_int(l) for l in self.all_labels  # pyrefly: ignore[bad-argument-type]
       ]
     else:
       orig_labels: list[int] = cast(list[int], self.all_labels)
@@ -253,7 +253,7 @@ class CsvDataLoader:
     # the Data Loader will default to '' if the label is None.
     orig_map[''] = cast(
         int,
-        self.convert_str_to_int(self.runner_parameters.unlabeled_data_value)
+        self.convert_str_to_int(self.runner_parameters.unlabeled_data_value)  # pyrefly: ignore[bad-argument-type]
         if self.runner_parameters.labels_are_strings
         else self.runner_parameters.unlabeled_data_value,
     )
@@ -591,7 +591,7 @@ class CsvDataLoader:
       return new_counts
 
     initial_state = dict(
-        (self.convert_str_to_int(i), 0) for i in self.all_labels
+        (self.convert_str_to_int(i), 0) for i in self.all_labels  # pyrefly: ignore[bad-argument-type]
     )
     counts = dataset.reduce(
         initial_state=initial_state, reduce_func=count_class
