@@ -414,7 +414,7 @@ def main(argv: Sequence[str]) -> None:
   runner_parameters = parameters.RunnerParameters(
       train_setting=_TRAIN_SETTING.value,
       input_bigquery_table_path=_INPUT_BIGQUERY_TABLE_PATH.value,
-      data_input_gcs_uri=_DATA_INPUT_GCS_URI.value,
+      data_input_gcs_uri=_DATA_INPUT_GCS_URI.value,  # pyrefly: ignore[bad-argument-type]
       output_gcs_uri=_OUTPUT_GCS_URI.value,
       label_col_name=_LABEL_COL_NAME.value,
       positive_data_value=_POSITIVE_DATA_VALUE.value,

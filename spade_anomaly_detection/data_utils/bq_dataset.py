@@ -211,19 +211,19 @@ class BQFeatureConverter:
 # https://numpy.org/doc/stable/reference/arrays.dtypes.html#string-dtype-note
 _STRING_CONVERSION_INFO = BQFeatureConverter(  # pytype: disable=wrong-arg-types  # numpy-scalars
     NULL_STRING_PLACEHOLDER,
-    np.str_,
+    np.str_,  # pyrefly: ignore[bad-argument-type]
     tf.dtypes.string,
 )
 _FLOAT_CONVERSION_INFO = BQFeatureConverter(  # pytype: disable=wrong-arg-types  # numpy-scalars
     NULL_FLOAT_PLACEHOLDER,
-    _NP_FLOAT_DTYPE,
+    _NP_FLOAT_DTYPE,  # pyrefly: ignore[bad-argument-type]
     _TF_FLOAT_DTYPE,
 )
 _INT_CONVERSION_INFO = BQFeatureConverter(  # pytype: disable=wrong-arg-types  # numpy-scalars
-    NULL_INT_PLACEHOLDER, _NP_INT_DTYPE, _TF_INT_DTYPE
+    NULL_INT_PLACEHOLDER, _NP_INT_DTYPE, _TF_INT_DTYPE  # pyrefly: ignore[bad-argument-type]
 )
 _BOOL_CONVERSION_INFO = BQFeatureConverter(  # pytype: disable=wrong-arg-types  # numpy-scalars
-    NULL_BOOL_PLACEHOLDER, _NP_BOOL_DTYPE, _TF_BOOL_DTYPE
+    NULL_BOOL_PLACEHOLDER, _NP_BOOL_DTYPE, _TF_BOOL_DTYPE  # pyrefly: ignore[bad-argument-type]
 )
 
 # Create a mapping from the BigQuery data types to how we want to handle their
@@ -270,7 +270,7 @@ def _dataframe_to_dict_of_tensors(
   output = {}
   for col_name, col_data in df.items():
     metadata = metadata_container.get_metadata_by_name(col_name)  # pytype: disable=wrong-arg-types  # pandas-drop-duplicates-overloads
-    bq_conversion = _TF_INFO_FROM_BQ_DTYPE[metadata.input_data_type]
+    bq_conversion = _TF_INFO_FROM_BQ_DTYPE[metadata.input_data_type]  # pyrefly: ignore[bad-index]
     feature_output = bq_conversion.series_to_tensor(
         col_data, with_mask=with_mask
     )
@@ -654,7 +654,7 @@ def get_bigquery_dataset(
     )
 
   dataset = tf.data.Dataset.from_generator(
-      tensor_generator_fn, output_signature=tensor_spec
+      tensor_generator_fn, output_signature=tensor_spec  # pyrefly: ignore[bad-argument-type]
   )
   if cache_location is not None and cache_location != NO_CACHE_LOCATION_NAME:
     filename = tempfile.mkdtemp() if cache_location == 'disk' else ''
@@ -752,7 +752,7 @@ def get_dataset_and_metadata_for_table(
     raise ValueError('Only one of table_parts or table_path can be specified.')
 
   if not table_parts:
-    table_parts = bq_utils.BQTablePathParts.from_full_path(table_path)
+    table_parts = bq_utils.BQTablePathParts.from_full_path(table_path)  # pyrefly: ignore[bad-argument-type]
 
   if not bigquery_client:
     bigquery_client = bigquery.Client(project=table_parts.project_id)
