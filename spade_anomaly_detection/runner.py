@@ -363,7 +363,7 @@ class Runner:
           label_col_name=self.runner_parameters.label_col_name,
           where_statements=self.runner_parameters.where_statements,  # pyrefly: ignore[bad-argument-type]
           ignore_columns=self.runner_parameters.ignore_columns,
-          batch_size=batch_size,
+          batch_size=batch_size,  # pyrefly: ignore[bad-argument-type]
           # Train using negative labeled data and unlabeled data.
           label_column_filter_value=[
               # Use the int values for filtering because filtering happens after
@@ -380,7 +380,7 @@ class Runner:
       training_data = self.input_data_loader.load_tf_dataset_from_csv(
           input_path=self.runner_parameters.data_input_gcs_uri,
           label_col_name=self.runner_parameters.label_col_name,
-          batch_size=batch_size,
+          batch_size=batch_size,  # pyrefly: ignore[bad-argument-type]
           # Train using negative labeled data and unlabeled data.
           label_column_filter_value=[
               # Use the int values for filtering because filtering happens after
