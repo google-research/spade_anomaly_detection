@@ -368,7 +368,7 @@ def _get_output_from_df_iterator(
     if verbose:
       tf.print('Yielding BQ Query')
     yield conversion_function(
-        pd.concat(data_frame_cache, axis=0, ignore_index=True)
+        pd.concat(data_frame_cache, axis=0, ignore_index=True)  # pyrefly: ignore[bad-argument-type]
     )
 
 
