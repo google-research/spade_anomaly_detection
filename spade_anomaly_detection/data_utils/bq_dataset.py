@@ -209,20 +209,20 @@ class BQFeatureConverter:
 
 
 # https://numpy.org/doc/stable/reference/arrays.dtypes.html#string-dtype-note
-_STRING_CONVERSION_INFO = BQFeatureConverter(  # pytype: disable=wrong-arg-types  # numpy-scalars
+_STRING_CONVERSION_INFO = BQFeatureConverter(
     NULL_STRING_PLACEHOLDER,
     np.str_,  # pyrefly: ignore[bad-argument-type]
     tf.dtypes.string,
 )
-_FLOAT_CONVERSION_INFO = BQFeatureConverter(  # pytype: disable=wrong-arg-types  # numpy-scalars
+_FLOAT_CONVERSION_INFO = BQFeatureConverter(
     NULL_FLOAT_PLACEHOLDER,
     _NP_FLOAT_DTYPE,  # pyrefly: ignore[bad-argument-type]
     _TF_FLOAT_DTYPE,
 )
-_INT_CONVERSION_INFO = BQFeatureConverter(  # pytype: disable=wrong-arg-types  # numpy-scalars
+_INT_CONVERSION_INFO = BQFeatureConverter(
     NULL_INT_PLACEHOLDER, _NP_INT_DTYPE, _TF_INT_DTYPE  # pyrefly: ignore[bad-argument-type]
 )
-_BOOL_CONVERSION_INFO = BQFeatureConverter(  # pytype: disable=wrong-arg-types  # numpy-scalars
+_BOOL_CONVERSION_INFO = BQFeatureConverter(
     NULL_BOOL_PLACEHOLDER, _NP_BOOL_DTYPE, _TF_BOOL_DTYPE  # pyrefly: ignore[bad-argument-type]
 )
 
@@ -269,7 +269,7 @@ def _dataframe_to_dict_of_tensors(
   """
   output = {}
   for col_name, col_data in df.items():
-    metadata = metadata_container.get_metadata_by_name(col_name)  # pytype: disable=wrong-arg-types  # pandas-drop-duplicates-overloads
+    metadata = metadata_container.get_metadata_by_name(col_name)  # pyrefly: ignore[bad-argument-type]
     bq_conversion = _TF_INFO_FROM_BQ_DTYPE[metadata.input_data_type]  # pyrefly: ignore[bad-index]
     feature_output = bq_conversion.series_to_tensor(
         col_data, with_mask=with_mask
@@ -281,7 +281,7 @@ def _dataframe_to_dict_of_tensors(
       output[col_name] = feature_output
 
   return (
-      output  # pytype: disable=bad-return-type  # pandas-drop-duplicates-overloads
+      output
   )
 
 
@@ -368,7 +368,7 @@ def _get_output_from_df_iterator(
     if verbose:
       tf.print('Yielding BQ Query')
     yield conversion_function(
-        pd.concat(data_frame_cache, axis=0, ignore_index=True)  # pyrefly: ignore[bad-argument-type]
+        pd.concat(data_frame_cache, axis=0, ignore_index=True)
     )
 
 
@@ -654,7 +654,7 @@ def get_bigquery_dataset(
     )
 
   dataset = tf.data.Dataset.from_generator(
-      tensor_generator_fn, output_signature=tensor_spec  # pyrefly: ignore[bad-argument-type]
+      tensor_generator_fn, output_signature=tensor_spec
   )
   if cache_location is not None and cache_location != NO_CACHE_LOCATION_NAME:
     filename = tempfile.mkdtemp() if cache_location == 'disk' else ''

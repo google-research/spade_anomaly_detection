@@ -167,7 +167,7 @@ def load_tf_dataset_from_csv(
   label_tensors = tf.convert_to_tensor(labels, dtype=tf.dtypes.int8)
 
   tf_dataset = tf.data.Dataset.from_tensor_slices(
-      (feature_tensors, label_tensors)  # pyrefly: ignore[bad-argument-type]
+      (feature_tensors, label_tensors)
   )
 
   if batch_size is not None:

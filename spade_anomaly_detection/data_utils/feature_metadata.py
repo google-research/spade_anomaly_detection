@@ -347,7 +347,7 @@ class FeatureMetadata:
   def is_numeric(self) -> bool:
     """If the feature is numeric."""
     if self.tf_data_type_str:
-      return self.tf_data_type.is_floating or self.tf_data_type.is_integer  # pytype: disable=attribute-error  # always-use-return-annotations
+      return self.tf_data_type.is_floating or self.tf_data_type.is_integer  # pyrefly: ignore[missing-attribute]
     # TODO(b/333154677): Handle other input sources more generically.
     else:
       return self.input_data_type in _BIGQUERY_SUPPORTED_NUMERIC_DATA_TYPES

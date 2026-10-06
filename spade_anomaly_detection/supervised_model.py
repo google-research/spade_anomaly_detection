@@ -71,7 +71,7 @@ class Model(abc.ABC):
     if self.supervised_model is None:
       raise ValueError('Supervised model was not initialized.')
     else:
-      self.supervised_model.save(save_location)  # pytype: disable=attribute-error
+      self.supervised_model.save(save_location)
 
       logging.info('Saved model assets to %s', save_location)
 
