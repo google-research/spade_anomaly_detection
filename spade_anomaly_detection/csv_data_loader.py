@@ -39,10 +39,12 @@ from absl import logging
 from google.cloud import storage
 import numpy as np
 import pandas as pd
-from spade_anomaly_detection import data_loader
 from spade_anomaly_detection import parameters
 import tensorflow as tf
 
+
+WEIGHT_COLUMN_NAME: Final[str] = 'alpha'
+PSEUDOLABEL_FLAG_COLUMN_NAME: Final[str] = 'is_pseudolabel'
 
 _FEATURES_TYPE: Final[str] = 'FLOAT64'
 _SOURCE_LABEL_TYPE: Final[str] = 'STRING'
@@ -749,7 +751,7 @@ class CsvDataLoader:
     # If the weights are provided, add them to the column names and to the
     # combined data.
     if weights is not None:
-      column_names.append(data_loader.WEIGHT_COLUMN_NAME)
+      column_names.append(WEIGHT_COLUMN_NAME)
       combined_data = np.concatenate(
           [combined_data, weights.reshape(len(features), 1).astype(np.float64)],
           axis=1,
@@ -758,7 +760,7 @@ class CsvDataLoader:
     # If the pseudolabel flags are provided, add them to the column names and
     # to the combined data.
     if pseudolabel_flags is not None:
-      column_names.append(data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME)
+      column_names.append(PSEUDOLABEL_FLAG_COLUMN_NAME)
       combined_data = np.concatenate(
           [
               combined_data,
@@ -782,8 +784,8 @@ class CsvDataLoader:
         self.runner_parameters.label_col_name: (
             str if self.runner_parameters.labels_are_strings else int
         ),
-        data_loader.WEIGHT_COLUMN_NAME: np.float64,
-        data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME: np.int64,
+        WEIGHT_COLUMN_NAME: np.float64,
+        PSEUDOLABEL_FLAG_COLUMN_NAME: np.int64,
     } | feature_column_dtypes_map
     complete_dataframe = complete_dataframe.astype(column_dtypes_map)
     if map_labels_to_bool:
@@ -802,11 +804,9 @@ class CsvDataLoader:
 
     # Adjust pseudolabel flag column type.
     if pseudolabel_flags is not None:
-      complete_dataframe[data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME] = (
-          complete_dataframe[data_loader.PSEUDOLABEL_FLAG_COLUMN_NAME].astype(
-              np.int64
-          )
-      )
+      complete_dataframe[PSEUDOLABEL_FLAG_COLUMN_NAME] = complete_dataframe[
+          PSEUDOLABEL_FLAG_COLUMN_NAME
+      ].astype(np.int64)
 
     output_path = os.path.join(
         self.runner_parameters.data_output_gcs_uri,
