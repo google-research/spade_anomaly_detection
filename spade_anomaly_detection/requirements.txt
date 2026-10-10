@@ -9,7 +9,7 @@ tensorflow-datasets==4.9.6
 parameterized==0.8.1
 # These are test dependencies and should be added as part of a separate layer
 # in the container that isn't included in the base container.
-pytest==7.1.2
+pytest==9.0.3
 # These are nested dependencies.
 # https://github.com/googleapis/python-bigquery/issues/1188
 fastavro[codecs]==1.4.12
