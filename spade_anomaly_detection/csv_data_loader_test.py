@@ -43,7 +43,6 @@ import pandas as pd
 from spade_anomaly_detection import csv_data_loader
 from spade_anomaly_detection import parameters
 import tensorflow as tf
-import tensorflow_datasets as tfds
 
 import pytest
 # Required for `self.create_tempdir` to work.
@@ -213,9 +212,12 @@ class CsvDataUtilsTest(tf.test.TestCase, parameterized.TestCase):
     self.assertCountEqual(all_files, expected_files)
 
   def test_get_header_from_input_file_returns_header(self):
-    with tfds.testing.MockFs() as fs:
-      fs.add_file(f"{self.csv_file1}", self.csv_file1_content)
-      header = csv_data_loader._get_header_from_input_file(self.csv_file1)
+    tmp_dir = self.create_tempdir()
+    file_path = os.path.join(tmp_dir.full_path, self.csv_file1)
+    tf.io.gfile.makedirs(os.path.dirname(file_path))
+    with tf.io.gfile.GFile(file_path, "w") as f:
+      f.write(self.csv_file1_content)
+    header = csv_data_loader._get_header_from_input_file(file_path)
     expected_header = "x1,x2,y\n"
     self.assertEqual(header, expected_header)
 
@@ -244,12 +246,15 @@ class CsvDataUtilsTest(tf.test.TestCase, parameterized.TestCase):
     else:
       raise ValueError(f"Invalid test case number: {test_case_number}")
 
-    with tfds.testing.MockFs() as fs:
-      fs.add_file(f"{csv_file}", csv_file_content)
-      column_names_info = csv_data_loader.ColumnNamesInfo.from_inputs_file(
-          inputs_file=csv_file,
-          label_column_name="y",
-      )
+    tmp_dir = self.create_tempdir()
+    file_path = os.path.join(tmp_dir.full_path, csv_file)
+    tf.io.gfile.makedirs(os.path.dirname(file_path))
+    with tf.io.gfile.GFile(file_path, "w") as f:
+      f.write(csv_file_content)
+    column_names_info = csv_data_loader.ColumnNamesInfo.from_inputs_file(
+        inputs_file=file_path,
+        label_column_name="y",
+    )
     expected_column_names_info = csv_data_loader.ColumnNamesInfo(
         header="x1,x2,y",
         label_column_name="y",
